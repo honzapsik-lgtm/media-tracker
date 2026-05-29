@@ -1,0 +1,7 @@
+# Project: Media Aggregator
+- Stack: Next.js 15 (App Router), Supabase (PostgreSQL), TailwindCSS, TypeScript.
+- Architecture: Prefer Server Components and Next.js Server Actions for data fetching. Client components must explicitly declare 'use client' at the top.
+- Database: Supabase. We do NOT use strict foreign key constraints for media_ids (we dynamically pass tmdb/rawg/jikan IDs).
+- UI Design: Dark mode by default. Backgrounds `bg-gray-950`, cards `bg-gray-900`, borders `border-gray-800`, primary accents `blue-500`.
+- TypeScript Rules: Strictly avoid `any` types. Always define clean interfaces for API responses (TMDb, RAWG, Jikan) before mapping arrays.
+- Component Logic: Keep UI modular. Extract interactive elements (sliders, expanding text) into `src/components`.
