@@ -1,7 +1,11 @@
 import ProfileTabs from "@/components/ProfileTabs";
+import ProfileHeader from "@/components/ProfileHeader";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export default async function ProfilePage() {
   const cookieStore = await cookies();
@@ -11,14 +15,12 @@ export default async function ProfilePage() {
     { cookies: { getAll: () => cookieStore.getAll() } }
   );
 
-  // 1. Verify the user is logged in
   const { data: { user } } = await supabase.auth.getUser();
-  
+
   if (!user) {
-    redirect("/login"); // Or wherever your auth page is
+    redirect("/login");
   }
 
-  // 2. Fetch all ratings for this specific user
   const { data: ratings, error } = await supabase
     .from("user_ratings")
     .select("*")
@@ -29,49 +31,43 @@ export default async function ProfilePage() {
     console.error("Error fetching profile data:", error);
   }
 
-  // 3. Format the data to match exactly what ProfileTabs expects
+  const { data: unlockedBadges } = await supabase
+    .from("user_badges")
+    .select("badge_id, unlocked_at")
+    .eq("user_id", user.id);
+  
+  const badges = unlockedBadges || [];
+
   const formattedData = ratings?.map((row) => {
-    // Extract the media type from our ID format (e.g., tmdb-tv-1234 -> SHOW)
     const parts = row.media_id.split('-');
     let typeLabel = "UNKNOWN";
-    if (parts[0] === 'tmdb') typeLabel = parts[1] === 'tv' ? 'SHOW' : 'MOVIE';
-    if (parts[0] === 'rawg') typeLabel = 'GAME';
-    if (parts[0] === 'manga') typeLabel = 'MANGA';
+
+    if (parts[0] === 'tmdb') {
+      typeLabel = parts[1] === 'movie' ? 'MOVIE' : 'SHOW';
+    } else if (parts[0] === 'rawg') {
+      typeLabel = 'GAME';
+    } else if (parts[0] === 'manga') {
+      typeLabel = 'MANGA';
+    }
 
     return {
       mediaId: row.media_id,
       score: row.score,
-      reviewText: row.review_text || "",
-      // NOTE: If you haven't added media_title and media_image to your database yet,
-      // these will fall back to placeholders so the UI doesn't crash.
+      reviewText: row.review_text,
       title: row.media_title || `Unknown Title (${row.media_id})`,
       image: row.media_image || null,
-      type: typeLabel
+      type: typeLabel,
+      rankPosition: row.rank_position || null,
     };
   }) || [];
 
   return (
     <main className="min-h-screen bg-gray-950 text-white pt-24 pb-12 px-8">
       <div className="max-w-7xl mx-auto">
+        {/* Pass userBadges to the header so it can populate the edit dropdowns */}
+        <ProfileHeader user={user} ratings={formattedData} userBadges={badges} />
         
-        {/* Profile Header */}
-        <div className="flex items-center gap-6 mb-12 border-b border-gray-800 pb-8">
-          {user.user_metadata?.avatar_url ? (
-             <img src={user.user_metadata.avatar_url} alt="Profile" className="w-24 h-24 rounded-full border-4 border-gray-800 shadow-xl" />
-          ) : (
-             <div className="w-24 h-24 rounded-full bg-blue-900 border-4 border-blue-500 flex items-center justify-center text-3xl font-black shadow-xl">
-               {user.email?.charAt(0).toUpperCase()}
-             </div>
-          )}
-          <div>
-            <h1 className="text-4xl font-black">{user.user_metadata?.custom_claims?.global_name || user.email?.split('@')[0]}</h1>
-            <p className="text-gray-400 mt-1">Total Ratings: <span className="text-white font-bold">{formattedData.length}</span></p>
-          </div>
-        </div>
-
-        {/* Inject the data into your Tabs Component */}
-        <ProfileTabs initialData={formattedData} />
-        
+        <ProfileTabs initialData={formattedData} userBadges={badges} />
       </div>
     </main>
   );

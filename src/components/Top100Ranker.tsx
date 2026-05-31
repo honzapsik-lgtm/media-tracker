@@ -3,143 +3,180 @@
 import { useState, useEffect } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 export default function Top100Ranker({ rawData }: { rawData: any[] }) {
-  // Sort the initial data by score so the highest rated is at the top by default
-  const [items, setItems] = useState([...rawData].sort((a, b) => b.score - a.score));
+  const router = useRouter();
+  
+  // Sort logic: Prioritize saved DB ranks first. If unranked, fallback to numeric score.
+  const [items, setItems] = useState(() => {
+    return [...rawData].sort((a, b) => {
+      if (a.rankPosition && b.rankPosition) return a.rankPosition - b.rankPosition;
+      if (a.rankPosition) return -1;
+      if (b.rankPosition) return 1;
+      return b.score - a.score;
+    });
+  });
+
+  // Force React to sync and resort the list whenever fresh database data arrives
+  useEffect(() => {
+    setItems([...rawData].sort((a, b) => {
+      if (a.rankPosition && b.rankPosition) return a.rankPosition - b.rankPosition;
+      if (a.rankPosition) return -1;
+      if (b.rankPosition) return 1;
+      return b.score - a.score;
+    }));
+  }, [rawData]);
+  
   const [isSaving, setIsSaving] = useState(false);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
-  const [activeTabType, setActiveTabType] = useState<string>(''); // New state
+  
+  // Defaulting to "show" since that is what you are testing right now
+  const [activeTabType, setActiveTabType] = useState<string>("show");
 
-  // Derive unique media types and set default activeTabType
-  const mediaTypes = [...new Set(rawData.map(item => item.type))];
-
-  useEffect(() => {
-    if (mediaTypes.length > 0 && !activeTabType) {
-      setActiveTabType(mediaTypes[0]);
-    }
-  }, [mediaTypes, activeTabType]);
+  const filteredItems = items.filter(
+    (item) => (item.type || "").toLowerCase() === activeTabType.toLowerCase()
+  );
 
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
 
-  const handleDragStart = (index: number) => {
-    setDraggedIndex(index);
-  };
+  const handleDragStart = (index: number) => setDraggedIndex(index);
+  const handleDragOver = (e: React.DragEvent) => e.preventDefault();
 
-  const handleDragOver = (e: React.DragEvent, index: number) => {
-    e.preventDefault(); // Necessary to allow dropping
-  };
+  const handleDrop = (e: React.DragEvent, targetIndex: number) => {
+    if (draggedIndex === null || draggedIndex === targetIndex) return;
 
-  const handleDrop = (index: number) => {
-    if (draggedIndex === null || draggedIndex === index) return;
+    const updatedFiltered = [...filteredItems];
+    const [movedItem] = updatedFiltered.splice(draggedIndex, 1);
+    updatedFiltered.splice(targetIndex, 0, movedItem);
+
+    const nonFilteredItems = items.filter(
+      (item) => (item.type || "").toLowerCase() !== activeTabType.toLowerCase()
+    );
     
-    const newItems = [...items];
-    const [draggedItem] = newItems.splice(draggedIndex, 1);
-    newItems.splice(index, 0, draggedItem);
-    
-    setItems(newItems);
+    setItems([...updatedFiltered, ...nonFilteredItems]);
     setDraggedIndex(null);
   };
 
   const handleSaveRankings = async () => {
     setIsSaving(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user) {
-      alert("Auth error. Please log in again.");
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        alert("Authentication Error: You must be logged in to save ranks.");
+        return;
+      }
+
+      const updates = filteredItems.map((item, index) => ({
+        user_id: user.id,
+        media_id: item.mediaId,
+        rank_position: index + 1,
+      }));
+
+      // Strict error catching to prevent silent failures
+      for (const row of updates) {
+        const { error } = await supabase
+          .from("user_ratings")
+          .update({ rank_position: row.rank_position })
+          .eq("user_id", row.user_id)
+          .eq("media_id", row.media_id);
+          
+        if (error) {
+          alert(`Database Error on ${row.media_id}: ${error.message}`);
+          throw error;
+        }
+      }
+
+      alert("Infinite Rankings saved successfully!");
+      router.refresh(); // Instantly update the master UI cache
+    } catch (err) {
+      console.error("Critical error saving rankings:", err);
+    } finally {
       setIsSaving(false);
-      return;
-    }
-
-    // Map the current visual order into the exact payload our database expects
-    const payload = items.map((item, index) => ({
-      user_id: user.id,
-      media_id: item.mediaId,
-      media_type: item.type || 'unknown',
-      rank_position: index + 1
-    }));
-
-    // Upsert sends a bulk array to Supabase in one single network request
-    const { error } = await supabase
-      .from('user_ranked_lists')
-      .upsert(payload, { onConflict: 'user_id, media_id' });
-
-    setIsSaving(false);
-
-    if (error) {
-      alert(`Error saving tier list: ${error.message}`);
-    } else {
-      // Optional: Show a nice toast notification here instead of an alert
-      alert("🏆 Top 100 List officially updated!");
     }
   };
 
-  if (items.length === 0) return <p className="text-gray-400 p-8">You haven't rated anything yet.</p>;
+  const categories = ["game", "movie", "show", "manga"];
 
   return (
-    <div className="bg-gray-900 border border-gray-800 p-6 rounded-2xl shadow-xl mt-6">
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h2 className="text-2xl font-black text-white">Your True Rank</h2>
-          <p className="text-gray-400 text-sm mt-1">Drag and drop items to reorder them. This calculates the global True Rank.</p>
-        </div>
-        <button 
-          onClick={handleSaveRankings} disabled={isSaving}
-          className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-8 rounded-lg shadow-lg shadow-blue-900/50 transition-all disabled:opacity-50"
+    <div className="space-y-6">
+      <div className="flex border-b border-gray-800 gap-2">
+        {categories.map((type) => (
+          <button
+            key={type}
+            onClick={() => setActiveTabType(type)}
+            className={`px-4 py-2 text-sm font-bold capitalize transition-all border-b-2 -mb-px ${
+              activeTabType === type
+                ? "border-blue-500 text-blue-400 font-black"
+                : "border-transparent text-gray-500 hover:text-gray-300"
+            }`}
+          >
+            {type}s
+          </button>
+        ))}
+      </div>
+
+      <div className="flex justify-between items-center">
+        <p className="text-xs text-gray-400 font-medium">
+          Drag and drop items to sort your infinite tier lists. Unranked items sit at the bottom.
+        </p>
+        <button
+          onClick={handleSaveRankings}
+          disabled={isSaving}
+          className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-1.5 px-4 rounded-xl text-sm transition-all disabled:bg-gray-800"
         >
-          {isSaving ? "Saving to DB..." : "Save List Order"}
+          {isSaving ? "Saving..." : "Save List Order"}
         </button>
       </div>
 
-      <div className="space-y-3">
-        {items.map((item, index) => (
-          <div 
+      <div className="space-y-2">
+        {filteredItems.map((item, index) => (
+          <div
             key={item.mediaId}
             draggable
             onDragStart={() => handleDragStart(index)}
-            onDragOver={(e) => handleDragOver(e, index)}
-            onDrop={() => handleDrop(index)}
-            className="flex items-center gap-4 bg-gray-950 p-3 rounded-xl border border-gray-800 cursor-grab active:cursor-grabbing hover:border-blue-500 transition-colors group"
+            onDragOver={handleDragOver}
+            onDrop={(e) => handleDrop(e, index)}
+            className="flex items-center gap-4 bg-gray-900 border border-gray-800 p-3 rounded-xl hover:border-gray-700 transition-all cursor-grab active:cursor-grabbing select-none"
           >
-            {/* The Rank Number */}
-            <div className="w-12 text-center font-black text-xl text-gray-700 group-hover:text-blue-500 transition-colors">
+            <span className="w-8 text-center text-xl font-black text-gray-600">
               #{index + 1}
-            </div>
+            </span>
 
-            {/* Thumbnail */}
             {item.image ? (
-              <img src={item.image} alt={item.title} className="w-12 h-16 object-cover rounded shadow" />
+              <img src={item.image} alt={item.title} className="w-12 h-16 object-cover rounded-lg shadow-md shrink-0" />
             ) : (
-              <div className="w-12 h-16 bg-gray-800 rounded flex items-center justify-center text-xs">No Img</div>
+              <div className="w-12 h-16 bg-gray-950 rounded-lg border border-gray-800 flex items-center justify-center text-[10px] text-gray-600 font-bold shrink-0">
+                NO IMG
+              </div>
             )}
 
-            {/* Details */}
-            <div className="flex-1">
-              <Link href={`/media/${item.mediaId}`} className="font-bold text-lg text-gray-200 hover:text-white">
+            <div className="flex-1 min-w-0">
+              <Link href={`/media/${item.mediaId}`} className="font-bold text-base text-gray-200 hover:text-blue-400 transition-colors block truncate">
                 {item.title}
               </Link>
-              <p className="text-xs text-gray-500 uppercase tracking-wider">{item.type}</p>
+              <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-gray-950 text-gray-500 border border-gray-800/60 inline-block mt-1">
+                {item.type}
+              </span>
             </div>
 
-            {/* Original Numeric Score Indicator */}
-            <div className="pr-4 text-right">
-              <p className="text-xs text-gray-500 uppercase mb-1">Raw Score</p>
-              <span className={`font-black ${item.score >= 75 ? 'text-green-400' : item.score >= 50 ? 'text-yellow-400' : 'text-red-400'}`}>
+            <div className="pr-2 text-right hidden sm:block">
+              <p className="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-0.5">Rating</p>
+              <span className={`text-base font-black ${item.score >= 75 ? 'text-green-400' : item.score >= 50 ? 'text-yellow-400' : 'text-red-400'}`}>
                 {item.score}%
               </span>
             </div>
-            
-            {/* Drag Handle Icon */}
-            <div className="text-gray-600 pr-2">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
-              </svg>
-            </div>
           </div>
         ))}
+
+        {filteredItems.length === 0 && (
+          <div className="text-center py-12 text-gray-500 italic text-sm border border-dashed border-gray-800 rounded-2xl">
+            No rated {activeTabType}s discovered yet. Go rate some to build your ranking leaderboard!
+          </div>
+        )}
       </div>
     </div>
   );

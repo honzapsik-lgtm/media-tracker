@@ -68,10 +68,11 @@ export default function SearchResultsTabs({ results }: SearchResultsTabsProps) {
         <p className="text-gray-400 text-center py-12">No results found in this category.</p>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
-          {filteredResults.map((item) => (
+          {/* THE FIX: Added 'index' to the map function and the key */}
+          {filteredResults.map((item, index) => (
             <Link 
               href={`/media/${item.id}`} 
-              key={item.id} 
+              key={`${item.id}-${index}`} 
               className="block hover:scale-105 transition-transform duration-300"
             >
               <div className="bg-gray-900 rounded-xl overflow-hidden shadow-lg h-full relative border border-gray-800">

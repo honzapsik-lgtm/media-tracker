@@ -37,8 +37,17 @@ export async function getBookDetails(id: string) {
       { next: { revalidate: 3600 } }
     );
 
-    if (!res.ok) return null;
-    const { data } = await res.json();
+    // Safety Net 1: Check if the response is OK
+    if (!res.ok) {
+      console.warn(`Manga API failed with status: ${res.status}`);
+      return null;
+    }
+    
+    const payload = await res.json();
+    const data = payload.data;
+
+    // Safety Net 2: Ensure the data object actually exists before mapping
+    if (!data) return null;
 
     return {
       id: `manga-${id}`,
@@ -62,6 +71,7 @@ export async function getBookDetails(id: string) {
       creator: null
     };
   } catch (error) {
+    // Safety Net 3: Catch any random network parsing errors
     console.error("Failed to fetch manga details:", error);
     return null;
   }

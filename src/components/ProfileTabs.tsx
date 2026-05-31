@@ -4,12 +4,21 @@ import { useState } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 import Link from "next/link";
 import Top100Ranker from "@/components/Top100Ranker";
+import { BADGE_DICTIONARY } from "@/components/ProfileHeader";
 
-export default function ProfileTabs({ initialData }: { initialData: any[] }) {
-  const [activeTab, setActiveTab] = useState<'ratings' | 'reviews' | 'top100'>('ratings');
+const getScoreColor = (score: number | null | undefined) => {
+  if (score === null || score === undefined) return "bg-gray-900/80 text-gray-500 border-gray-700";
+  if (score >= 95) return "bg-yellow-900/80 text-yellow-400 border-yellow-500 shadow-[0_0_8px_rgba(250,204,21,0.4)]"; 
+  if (score >= 75) return "bg-green-900/80 text-green-400 border-green-500";
+  if (score >= 50) return "bg-blue-900/80 text-blue-400 border-blue-500";
+  if (score >= 25) return "bg-gray-800 text-gray-400 border-gray-600";
+  return "bg-gray-900/80 text-gray-500 border-gray-700"; 
+};
+
+export default function ProfileTabs({ initialData, userBadges = [] }: { initialData: any[], userBadges?: any[] }) {
+  const [activeTab, setActiveTab] = useState<'ratings' | 'reviews' | 'top100' | 'stats' | 'achievements'>('ratings');
   const [processedData, setProcessedData] = useState(initialData || []);
   
-  // States for inline editing
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editReviewText, setEditReviewText] = useState("");
   const [editScore, setEditScore] = useState<number>(50);
@@ -19,93 +28,81 @@ export default function ProfileTabs({ initialData }: { initialData: any[] }) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
 
-  // --- CRUD Operations ---
+  const getMediaUrl = (mediaId: string) => {
+    if (!mediaId) return "#";
+    const parts = mediaId.split('-');
+    if (parts[0] === 'tmdb' && parts[1] === 'tv' && parts.length === 4) {
+      const seasonNum = parts[3].replace('s', ''); 
+      return `/media/${parts[0]}-${parts[1]}-${parts[2]}/season/${seasonNum}`;
+    }
+    return `/media/${mediaId}`;
+  };
+
+  const getDisplayType = (type: string, mediaId: string) => {
+    if (type === 'SHOW' && mediaId.includes('-s')) return 'SEASON';
+    return type;
+  };
+
   const handleDelete = async (mediaId: string) => {
     if (!window.confirm("Are you sure you want to delete this rating completely?")) return;
-
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const { error } = await supabase
-      .from("user_ratings")
-      .delete()
-      .eq("user_id", user.id)
-      .eq("media_id", mediaId);
-
+    const { error } = await supabase.from("user_ratings").delete().eq("user_id", user.id).eq("media_id", mediaId);
     if (!error) {
       setProcessedData(prev => prev.filter(item => item.mediaId !== mediaId));
-    } else {
-      alert(`Delete Error: ${error.message}`);
     }
   };
 
-  const handleSaveReviewEdit = async (mediaId: string) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+  // ---- STATISTICS LOGIC ----
+  const totalScores = processedData.map(d => d.score);
+  const avgScore = totalScores.length > 0 ? Math.round(totalScores.reduce((a, b) => a + b, 0) / totalScores.length) : 0;
+  
+  const distribution = [0, 0, 0, 0, 0]; 
+  totalScores.forEach(score => {
+    if (score <= 20) distribution[0]++;
+    else if (score <= 40) distribution[1]++;
+    else if (score <= 60) distribution[2]++;
+    else if (score <= 80) distribution[3]++;
+    else distribution[4]++;
+  });
+  const maxBucket = Math.max(...distribution, 1);
 
-    const { error } = await supabase
-      .from("user_ratings")
-      .update({ review_text: editReviewText })
-      .eq("user_id", user.id)
-      .eq("media_id", mediaId);
+  // ---- DYNAMIC BADGE PROGRESS LOGIC ----
+  const gameCount = processedData.filter(d => d.type === 'GAME').length;
+  const mangaCount = processedData.filter(d => d.type === 'MANGA').length;
+  const hasVoidStare = processedData.some(d => d.score <= 20);
+  const hasMasterpiece = processedData.some(d => d.score === 100);
 
-    if (!error) {
-      setProcessedData(prev => prev.map(item =>
-        item.mediaId === mediaId ? { ...item, reviewText: editReviewText } : item
-      ));
-      setEditingId(null);
-    } else {
-      alert(`Update Error: ${error.message}`);
+  const getBadgeProgress = (badgeId: string) => {
+    let current = 0;
+    let target = 1;
+    
+    switch (badgeId) {
+      case 'ratings_10': target = 10; current = processedData.length; break;
+      case 'ratings_50': target = 50; current = processedData.length; break;
+      case 'ratings_100': target = 100; current = processedData.length; break;
+      case 'games_10': target = 10; current = gameCount; break;
+      case 'manga_10': target = 10; current = mangaCount; break;
+      case 'void_stare': target = 1; current = hasVoidStare ? 1 : 0; break;
+      case 'masterpiece': target = 1; current = hasMasterpiece ? 1 : 0; break;
     }
+    
+    return {
+      current: Math.min(current, target),
+      target,
+      percentage: Math.min((current / target) * 100, 100)
+    };
   };
 
-  const handleSaveScoreEdit = async (mediaId: string) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const { error } = await supabase
-      .from("user_ratings")
-      .update({ score: editScore })
-      .eq("user_id", user.id)
-      .eq("media_id", mediaId);
-
-    if (!error) {
-      setProcessedData(prev => prev.map(item =>
-        item.mediaId === mediaId ? { ...item, score: editScore } : item
-      ));
-      setEditingId(null);
-    } else {
-      alert(`Update Error: ${error.message}`);
-    }
-  };
-
-  // --- Render Helpers ---
   const renderTabNavigation = () => (
     <div className="flex flex-wrap gap-2 mb-8 bg-gray-900 p-2 rounded-xl border border-gray-800 w-fit">
-      <button
-        onClick={() => setActiveTab('ratings')}
-        className={`px-6 py-2 rounded-lg font-bold transition-all duration-200 ${
-          activeTab === 'ratings' ? 'bg-blue-600 text-white shadow-lg' : 'bg-transparent text-gray-400 hover:text-white hover:bg-gray-800'
-        }`}
-      >
-        All Ratings
-      </button>
-      <button
-        onClick={() => setActiveTab('reviews')}
-        className={`px-6 py-2 rounded-lg font-bold transition-all duration-200 ${
-          activeTab === 'reviews' ? 'bg-blue-600 text-white shadow-lg' : 'bg-transparent text-gray-400 hover:text-white hover:bg-gray-800'
-        }`}
-      >
-        Written Reviews
-      </button>
-      <button
-        onClick={() => setActiveTab('top100')}
-        className={`px-6 py-2 rounded-lg font-bold transition-all duration-200 ${
-          activeTab === 'top100' ? 'bg-blue-600 text-white shadow-lg' : 'bg-transparent text-gray-400 hover:text-white hover:bg-gray-800'
-        }`}
-      >
-        True Rank List
-      </button>
+      <button onClick={() => setActiveTab('ratings')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${activeTab === 'ratings' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>All Ratings</button>
+      <button onClick={() => setActiveTab('reviews')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${activeTab === 'reviews' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>Written Reviews</button>
+      <button onClick={() => setActiveTab('top100')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${activeTab === 'top100' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>List Rank</button>
+      <div className="w-px h-6 bg-gray-700 self-center mx-1 hidden sm:block"></div>
+      <button onClick={() => setActiveTab('stats')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${activeTab === 'stats' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>Statistics</button>
+      <button onClick={() => setActiveTab('achievements')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${activeTab === 'achievements' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>Achievements</button>
     </div>
   );
 
@@ -113,167 +110,105 @@ export default function ProfileTabs({ initialData }: { initialData: any[] }) {
     <div>
       {renderTabNavigation()}
 
-      {/* TAB 1: ALL RATINGS (Poster Grid) */}
       {activeTab === 'ratings' && (
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
           {processedData.map((item) => (
             <div key={item.mediaId} className="relative group bg-gray-900 rounded-xl overflow-hidden shadow-lg border border-gray-800 flex flex-col h-full">
-              
-              {/* Score Badge */}
-              <div className={`absolute top-2 right-2 z-10 px-2 py-1 text-xs font-black rounded shadow-lg border ${
-                item.score >= 75 ? 'bg-green-900 border-green-500 text-white' : 
-                item.score >= 50 ? 'bg-yellow-900 border-yellow-500 text-white' : 
-                'bg-red-900 border-red-500 text-white'
-              }`}>
+              <div className={`absolute top-2 right-2 z-10 px-2 py-1 text-xs font-black rounded shadow-lg border backdrop-blur-md ${getScoreColor(item.score)}`}>
                 {item.score}%
               </div>
-
-              {/* Poster */}
-              <Link href={`/media/${item.mediaId}`} className="block relative aspect-[2/3] overflow-hidden">
-                {item.image ? (
-                  <img src={item.image} alt={item.title} className="w-full h-full object-cover group-hover:opacity-80 transition-opacity" />
-                ) : (
-                  <div className="w-full h-full bg-gray-800 flex items-center justify-center text-gray-500 p-4 text-center">No Image</div>
-                )}
+              <Link href={getMediaUrl(item.mediaId)} className="block relative aspect-[2/3] overflow-hidden">
+                {item.image ? <img src={item.image} alt={item.title} className="w-full h-full object-cover group-hover:opacity-80 transition-opacity" /> : <div className="w-full h-full bg-gray-800 flex items-center justify-center text-gray-500 p-4 text-center">No Image</div>}
               </Link>
-
-              {/* Details & Inline Edit */}
               <div className="p-4 flex flex-col flex-1">
                 <h2 className="font-semibold text-lg truncate mb-1" title={item.title}>{item.title}</h2>
-                <p className="text-gray-400 text-xs uppercase tracking-wider mb-4">{item.type}</p>
-
-                {/* CRUD Controls at the bottom */}
-                <div className="mt-auto border-t border-gray-800 pt-3">
-                  {editingId === `score-${item.mediaId}` ? (
-                    <div className="flex flex-col gap-2">
-                      <input 
-                        type="range" min="0" max="100" value={editScore}
-                        onChange={(e) => setEditScore(Number(e.target.value))}
-                        className="w-full accent-blue-500"
-                      />
-                      <div className="flex justify-between text-xs">
-                        <span>{editScore}%</span>
-                        <div className="flex gap-2">
-                          <button onClick={() => handleSaveScoreEdit(item.mediaId)} className="text-green-400 font-bold hover:underline">Save</button>
-                          <button onClick={() => setEditingId(null)} className="text-gray-500 hover:text-white">Cancel</button>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex justify-between text-xs font-bold uppercase tracking-wider">
-                      <button 
-                        onClick={() => { setEditingId(`score-${item.mediaId}`); setEditScore(item.score); }}
-                        className="text-gray-500 hover:text-blue-400 transition-colors"
-                      >
-                        Edit Score
-                      </button>
-                      <button 
-                        onClick={() => handleDelete(item.mediaId)}
-                        className="text-gray-500 hover:text-red-400 transition-colors"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  )}
-                </div>
+                <p className="text-gray-400 text-xs uppercase tracking-wider mb-4">{getDisplayType(item.type, item.mediaId)}</p>
               </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* TAB 2: WRITTEN REVIEWS (List Feed) */}
-      {activeTab === 'reviews' && (
-        <div className="flex flex-col gap-6 max-w-4xl">
-          {processedData.filter(item => item.reviewText).map((item) => (
-            <div key={item.mediaId} className="bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl flex gap-6">
-              
-              {/* Thumbnail */}
-              <Link href={`/media/${item.mediaId}`} className="shrink-0">
-                {item.image ? (
-                  <img src={item.image} alt={item.title} className="w-24 rounded-lg shadow-md border border-gray-700" />
-                ) : (
-                  <div className="w-24 aspect-[2/3] bg-gray-800 rounded-lg flex items-center justify-center text-xs">No Img</div>
-                )}
-              </Link>
+      {activeTab === 'top100' && <Top100Ranker rawData={processedData} />}
 
-              {/* Review Content */}
-              <div className="flex-1 flex flex-col">
-                <div className="flex justify-between items-start mb-2">
-                  <div>
-                    <Link href={`/media/${item.mediaId}`} className="text-xl font-black text-gray-200 hover:text-white transition-colors">
-                      {item.title}
-                    </Link>
-                    <p className="text-xs text-gray-500 uppercase tracking-wider mt-1">{item.type}</p>
-                  </div>
-                  
-                  {/* CSS Fix: Grouped Score and Action Buttons properly so they never overlap */}
-                  <div className="flex flex-col items-end gap-2">
-                     <span className={`px-3 py-1 rounded-lg border font-black text-sm ${
-                        item.score >= 75 ? 'bg-green-900 border-green-500 text-white' : 
-                        item.score >= 50 ? 'bg-yellow-900 border-yellow-500 text-white' : 
-                        'bg-red-900 border-red-500 text-white'
-                      }`}>
-                        {item.score}%
+      {activeTab === 'stats' && (
+        <div className="grid md:grid-cols-2 gap-8">
+          <div className="bg-gray-900 p-8 rounded-2xl border border-gray-800 shadow-xl">
+            <h3 className="text-2xl font-black mb-2">The Critic's Offset</h3>
+            <p className="text-gray-400 text-sm mb-8">How harsh or generous are your ratings?</p>
+            <div className="flex items-end gap-6 mb-6">
+              <div className="text-6xl font-black text-blue-500">{avgScore}%</div>
+              <div className="pb-2 text-gray-400 font-bold uppercase tracking-widest text-sm">Average Score</div>
+            </div>
+            {avgScore > 80 ? <p className="text-green-400 text-sm font-bold border-l-4 border-green-500 pl-3">You are a highly generous critic. You focus on the best parts of media.</p> : 
+             avgScore < 50 ? <p className="text-red-400 text-sm font-bold border-l-4 border-red-500 pl-3">You are a notoriously harsh critic. Perfection is rarely achieved.</p> :
+             <p className="text-yellow-400 text-sm font-bold border-l-4 border-yellow-500 pl-3">You have a balanced, critical eye. A true bell-curve evaluator.</p>}
+          </div>
+
+          <div className="bg-gray-900 p-8 rounded-2xl border border-gray-800 shadow-xl">
+            <h3 className="text-2xl font-black mb-8">Score Distribution</h3>
+            <div className="flex items-end justify-between h-48 gap-2">
+              {['0-20', '21-40', '41-60', '61-80', '81-100'].map((label, index) => (
+                <div key={label} className="flex flex-col items-center flex-1 gap-2 group">
+                  <div className="text-xs font-bold text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity">{distribution[index]}</div>
+                  <div className="w-full bg-blue-600 rounded-t-md transition-all duration-500 hover:bg-blue-400" style={{ height: `${Math.max((distribution[index] / maxBucket) * 100, 5)}%` }}></div>
+                  <div className="text-[10px] text-gray-500 font-bold whitespace-nowrap">{label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* THE NEW ACHIEVEMENTS LIST LAYOUT */}
+      {activeTab === 'achievements' && (
+        <div className="flex flex-col gap-3 max-w-4xl">
+          {BADGE_DICTIONARY.map((badge) => {
+            const unlockedData = userBadges.find(b => b.badge_id === badge.id);
+            const isUnlocked = !!unlockedData;
+            const progress = getBadgeProgress(badge.id);
+
+            return (
+              <div key={badge.id} className={`p-4 rounded-xl border flex items-center gap-5 transition-all duration-300 ${isUnlocked ? 'bg-gray-900 border-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.05)]' : 'bg-gray-950/50 border-gray-800/80 grayscale'}`}>
+                
+                {/* Icon Block */}
+                <div className={`w-14 h-14 shrink-0 flex items-center justify-center text-2xl rounded-lg border-2 ${isUnlocked ? 'bg-blue-900/30 border-blue-500 text-white' : 'bg-gray-900 border-gray-700 text-gray-600'}`}>
+                  {badge.icon}
+                </div>
+                
+                {/* Text Block */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-baseline justify-between mb-1">
+                    <h3 className={`font-black text-lg tracking-tight truncate ${isUnlocked ? 'text-gray-100' : 'text-gray-500'}`}>{badge.title}</h3>
+                    {isUnlocked ? (
+                      <span className="text-[10px] shrink-0 font-black uppercase tracking-widest text-blue-400">
+                        Unlocked {new Date(unlockedData.unlocked_at).toLocaleDateString()}
                       </span>
-                      <div className="flex gap-3 text-xs font-bold uppercase tracking-wider mt-1">
-                        <button 
-                          onClick={() => { setEditingId(`review-${item.mediaId}`); setEditReviewText(item.reviewText || ""); }}
-                          className="text-gray-500 hover:text-blue-400 transition-colors"
-                        >
-                          Edit
-                        </button>
-                        <button 
-                          onClick={() => handleDelete(item.mediaId)}
-                          className="text-gray-500 hover:text-red-400 transition-colors"
-                        >
-                          Delete
-                        </button>
-                      </div>
+                    ) : (
+                      <span className="text-[10px] shrink-0 font-bold text-gray-500">
+                        {progress.current} / {progress.target}
+                      </span>
+                    )}
                   </div>
+                  <p className="text-sm text-gray-400 truncate">{badge.desc}</p>
                 </div>
 
-                <div className="mt-4 flex-1">
-                  {editingId === `review-${item.mediaId}` ? (
-                    <div className="space-y-3">
-                      <textarea
-                        value={editReviewText}
-                        onChange={(e) => setEditReviewText(e.target.value)}
-                        className="w-full h-24 bg-gray-950 border border-gray-700 rounded-lg p-3 text-sm text-gray-200 focus:outline-none focus:border-blue-500 resize-y"
+                {/* Progress Bar (Only visible if locked) */}
+                {!isUnlocked && (
+                  <div className="w-32 shrink-0 hidden sm:block">
+                    <div className="w-full h-2 bg-gray-900 rounded-full overflow-hidden border border-gray-800">
+                      <div 
+                        className="h-full bg-gray-600 rounded-full transition-all duration-500" 
+                        style={{ width: `${progress.percentage}%` }} 
                       />
-                      <div className="flex gap-2">
-                        <button 
-                          onClick={() => handleSaveReviewEdit(item.mediaId)}
-                          className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-1.5 px-4 rounded transition-colors text-sm"
-                        >
-                          Save Changes
-                        </button>
-                        <button 
-                          onClick={() => setEditingId(null)}
-                          className="bg-transparent border border-gray-700 text-gray-400 hover:text-white font-bold py-1.5 px-4 rounded transition-colors text-sm"
-                        >
-                          Cancel
-                        </button>
-                      </div>
                     </div>
-                  ) : (
-                    <p className="text-gray-300 leading-relaxed italic border-l-4 border-gray-700 pl-4 py-1 text-sm">
-                      "{item.reviewText}"
-                    </p>
-                  )}
-                </div>
+                  </div>
+                )}
+                
               </div>
-            </div>
-          ))}
-          {processedData.filter(item => item.reviewText).length === 0 && (
-             <p className="text-gray-500 italic p-4">You have not written any text reviews yet.</p>
-          )}
+            );
+          })}
         </div>
-      )}
-
-      {/* TAB 3: TOP 100 RANKER */}
-      {activeTab === 'top100' && (
-        <Top100Ranker rawData={processedData} />
       )}
     </div>
   );

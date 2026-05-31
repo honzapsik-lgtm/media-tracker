@@ -1,201 +1,175 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { createBrowserClient } from "@supabase/ssr";
+import { useRouter } from "next/navigation";
 
 const CRITERIA_CONFIG: Record<string, { key: string; label: string }[]> = {
   game: [
-    { key: "narrative", label: "Narrative" },
-    { key: "gameplay", label: "Gameplay" },
-    { key: "visuals", label: "Visuals and graphics" },
-    { key: "performance", label: "Performance" },
+    { key: "narrative", label: "Narrative" }, { key: "gameplay", label: "Gameplay" },
+    { key: "visuals", label: "Visuals and graphics" }, { key: "performance", label: "Performance" },
     { key: "audio", label: "Audio and soundtrack" },
   ],
   movie: [
-    { key: "narrative", label: "Narrative" },
-    { key: "cinematography", label: "Cinematography" },
-    { key: "sound", label: "Sound and score" },
-    { key: "acting", label: "Acting performances" },
+    { key: "narrative", label: "Narrative" }, { key: "cinematography", label: "Cinematography" },
+    { key: "sound", label: "Sound and score" }, { key: "acting", label: "Acting performances" },
   ],
   show: [
-    { key: "narrative", label: "Narrative" },
-    { key: "cinematography", label: "Cinematography" },
-    { key: "sound", label: "Sound and score" },
-    { key: "acting", label: "Acting performances" },
+    { key: "narrative", label: "Narrative" }, { key: "cinematography", label: "Cinematography" },
+    { key: "sound", label: "Sound and score" }, { key: "acting", label: "Acting performances" },
     { key: "ending", label: "Ending" },
   ],
   manga: [
-    { key: "narrative", label: "Narrative" },
-    { key: "artStyle", label: "Art style" },
-    { key: "characters", label: "Characters" },
-    { key: "development", label: "Development" },
+    { key: "narrative", label: "Narrative" }, { key: "artStyle", label: "Art style" },
+    { key: "characters", label: "Characters" }, { key: "development", label: "Development" },
   ],
 };
 
+export const getScoreColor = (score: number | null | undefined) => {
+  if (score === null || score === undefined) return "text-gray-500";
+  if (score >= 95) return "text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.6)]"; // Gold
+  if (score >= 75) return "text-green-400";
+  if (score >= 50) return "text-blue-400";
+  if (score >= 25) return "text-gray-400";
+  return "text-gray-700"; // Black/Dark Grey
+};
 
+interface RatingSliderProps {
+  mediaId: string; mediaType: "game" | "movie" | "show" | "manga";
+  mediaTitle: string; mediaImage: string | null;
+  initialRating?: number; initialCriteria?: Record<string, number>;
+}
 
-export default function RatingSlider({ 
-  mediaId, 
-  mediaType,
-  mediaTitle,
-  mediaImage
-}: { 
-  mediaId: string; 
-  mediaType: string;
-  mediaTitle: string;
-  mediaImage: string | null;
-}) {
-  const [rating, setRating] = useState(50);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [hasRated, setHasRated] = useState(false);
-  const [isDeepReview, setIsDeepReview] = useState(false);
-  const [criteria, setCriteria] = useState<Record<string, number>>({});
+export default function RatingSlider({ mediaId, mediaType, mediaTitle, mediaImage, initialRating = 50, initialCriteria }: RatingSliderProps) {
+  const router = useRouter();
+  const [rating, setRating] = useState<number>(initialRating);
+  const [isDeepReview, setIsDeepReview] = useState<boolean>(false);
+  const [hasRated, setHasRated] = useState<boolean>(false);
+  
+  const [criteria, setCriteria] = useState<Record<string, number>>(() => {
+    if (initialCriteria && Object.keys(initialCriteria).length > 0) return initialCriteria;
+    const config = CRITERIA_CONFIG[mediaType] || [];
+    const initial: Record<string, number> = {};
+    config.forEach((item) => { initial[item.key] = 50; });
+    return initial;
+  });
+
   const [globalCriteriaAverages, setGlobalCriteriaAverages] = useState<Record<string, number>>({});
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
 
-  useEffect(() => {
-    const initialCriteria: Record<string, number> = {};
-    CRITERIA_CONFIG[mediaType]?.forEach(c => {
-      initialCriteria[c.key] = 50;
-    });
-    setCriteria(initialCriteria);
-
-    async function fetchExistingAndGlobalData() {
+  const fetchData = useCallback(async () => {
+    try {
       const { data: { user } } = await supabase.auth.getUser();
-      // Fetch user's existing rating
       if (user) {
-        const { data: userRatingData } = await supabase
-          .from("user_ratings")
+        const { data: personalData } = await supabase.from("user_ratings")
           .select("score, is_deep_review, criteria_scores")
-          .eq("user_id", user.id)
-          .eq("media_id", mediaId)
-          .single();
+          .eq("user_id", user.id).eq("media_id", mediaId).single();
 
-        if (userRatingData) {
-          setRating(userRatingData.score);
-          if (userRatingData.is_deep_review) {
-            setIsDeepReview(true);
-            if (userRatingData.criteria_scores) {
-              // Only update criteria that are part of the current mediaType config
-              const updatedCriteria = { ...initialCriteria };
-              for (const key in userRatingData.criteria_scores) {
-                if (initialCriteria.hasOwnProperty(key)) {
-                  updatedCriteria[key] = userRatingData.criteria_scores[key];
-                }
-              }
-              setCriteria(updatedCriteria);
-            }
-          }
+        if (personalData) {
+          setRating(personalData.score);
           setHasRated(true);
-        }
-      }
-
-      // Fetch global criteria averages
-      const { data: allRatings, error: allRatingsError } = await supabase
-        .from("user_ratings")
-        .select("criteria_scores")
-        .eq("media_id", mediaId);
-
-      if (allRatingsError) {
-        console.error("Error fetching global ratings:", allRatingsError.message);
-        return;
-      }
-
-      if (allRatings) {
-        const criteriaSums: Record<string, number[]> = {};
-        CRITERIA_CONFIG[mediaType]?.forEach(c => {
-          criteriaSums[c.key] = [];
-        });
-
-        allRatings.forEach(rating => {
-          if (rating.criteria_scores) {
-            for (const key in rating.criteria_scores) {
-              if (criteriaSums.hasOwnProperty(key)) {
-                criteriaSums[key].push(rating.criteria_scores[key]);
-              }
-            }
-          }
-        });
-
-        const calculatedGlobalAverages: Record<string, number> = {};
-        for (const key in criteriaSums) {
-          if (criteriaSums[key].length > 0) {
-            const sum = criteriaSums[key].reduce((acc, val) => acc + val, 0);
-            calculatedGlobalAverages[key] = Math.round(sum / criteriaSums[key].length);
+          if (personalData.is_deep_review) {
+            setIsDeepReview(true);
+            if (personalData.criteria_scores) setCriteria(prev => ({ ...prev, ...(personalData.criteria_scores as Record<string, number>) }));
           }
         }
-        setGlobalCriteriaAverages(calculatedGlobalAverages);
       }
-    }
-    fetchExistingAndGlobalData();
-  }, [mediaId, mediaType, supabase]);
 
-  const updateCriterion = (key: string, value: number) => {
-    setCriteria(prev => ({ ...prev, [key]: value }));
-  };
+      const { data: globalData } = await supabase.from("user_ratings")
+        .select("criteria_scores").eq("media_id", mediaId).eq("is_deep_review", true);
+
+      if (globalData && globalData.length > 0) {
+        const sums: Record<string, number> = {};
+        const counts: Record<string, number> = {};
+        globalData.forEach((row) => {
+          const scores = row.criteria_scores as Record<string, number> | null;
+          if (scores && typeof scores === "object") {
+            Object.entries(scores).forEach(([key, val]) => {
+              if (typeof val === "number") { sums[key] = (sums[key] || 0) + val; counts[key] = (counts[key] || 0) + 1; }
+            });
+          }
+        });
+        const averages: Record<string, number> = {};
+        Object.keys(sums).forEach((key) => { averages[key] = Math.round(sums[key] / counts[key]); });
+        setGlobalCriteriaAverages(averages);
+      }
+    } catch (err) { console.error(err); }
+  }, [mediaId, supabase]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const updateCriterion = (key: string, value: number) => { setCriteria((prev) => ({ ...prev, [key]: value })); };
+
+  const globalKeys = Object.keys(globalCriteriaAverages);
+  const overallGlobalAverage = globalKeys.length > 0
+    ? Math.round(globalKeys.reduce((sum, key) => sum + globalCriteriaAverages[key], 0) / globalKeys.length)
+    : null;
 
   const handleSave = async () => {
-    setIsSubmitting(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return alert("You must be logged in to rate!");
+    setIsSaving(true); setMessage(null);
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) throw new Error("You must be logged in to rate media.");
 
-    const username = user.user_metadata?.custom_claims?.global_name || user.email?.split('@')[0] || 'Anonymous';
-    const payload = {
-      score: rating, username: username, avatar_url: user.user_metadata?.avatar_url || null,
-      is_deep_review: isDeepReview, criteria_scores: isDeepReview ? criteria : null,
-      media_title: mediaTitle, media_image: mediaImage
-    };
+      const payloadCriteria = isDeepReview ? criteria : {};
 
-    const { error } = hasRated 
-      ? await supabase.from("user_ratings").update(payload).eq("user_id", user.id).eq("media_id", mediaId)
-      : await supabase.from("user_ratings").insert({ user_id: user.id, media_id: mediaId, ...payload });
+      const { error } = await supabase.from("user_ratings").upsert(
+        { user_id: user.id, media_id: mediaId, score: rating, is_deep_review: isDeepReview, criteria_scores: payloadCriteria, media_title: mediaTitle, media_image: mediaImage },
+        { onConflict: "user_id,media_id" }
+      );
 
-    setIsSubmitting(false);
-    if (error) alert(`Error: ${error.message}`);
-    else setHasRated(true);
+      if (error) throw error;
+      setMessage({ type: "success", text: "Rating saved successfully!" });
+      setHasRated(true);
+      fetchData(); 
+      router.refresh(); // Tells Next.js to instantly reload the server data on the main page
+    } catch (err: any) { setMessage({ type: "error", text: err.message || "Something went wrong." }); } 
+    finally { setIsSaving(false); }
   };
 
   return (
-    <div className="flex flex-col w-full space-y-6">
-      <div className="flex justify-between items-end">
-        <h3 className="font-bold text-gray-200">Your Score</h3>
-        <span className={`text-4xl font-black ${rating >= 75 ? 'text-green-400' : rating >= 50 ? 'text-yellow-400' : 'text-red-400'}`}>
-          {rating}%
-        </span>
+    <div className="bg-gray-900 border border-gray-800 p-6 rounded-2xl max-w-md w-full space-y-6 shadow-xl">
+      <div className="flex justify-between items-center border-b border-gray-800 pb-3">
+        <h3 className="font-black text-xl tracking-tight text-white">Your Rating</h3>
+        <button onClick={() => setIsDeepReview(!isDeepReview)} className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-all ${isDeepReview ? "bg-blue-600/10 border-blue-500/50 text-blue-400" : "bg-gray-800 border-transparent text-gray-400 hover:text-white"}`}>
+          {isDeepReview ? "Simple Mode" : "Deep Review"}
+        </button>
       </div>
 
-      <div className="flex bg-gray-950 p-1 rounded-lg border border-gray-800">
-        <button onClick={() => setIsDeepReview(false)} className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-colors ${!isDeepReview ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}`}>Quick</button>
-        <button onClick={() => setIsDeepReview(true)} className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-colors ${isDeepReview ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}`}>Deep</button>
-      </div>
-
-      {!isDeepReview ? (
+      <div className="space-y-2">
+        <div className="flex justify-between items-end">
+          <span className="text-sm font-bold text-gray-400">Master Score</span>
+          <span className={`text-3xl font-black ${getScoreColor(rating)}`}>{rating}%</span>
+        </div>
         <input type="range" min="0" max="100" value={rating} onChange={(e) => setRating(Number(e.target.value))} className="w-full h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-blue-500" />
-      ) : (
+      </div>
+
+      {isDeepReview && (
         <div className="space-y-4 bg-gray-950/50 p-4 rounded-xl border border-gray-800">
-          <div className="text-center text-gray-500 text-sm mb-4">
-            Calculated Criteria Average: {Math.round(Object.values(criteria).reduce((sum, val) => sum + val, 0) / (Object.keys(criteria).length || 1))}
+          <div className="text-center text-gray-400 font-medium text-xs border-b border-gray-900 pb-2 mb-2">
+            Global Criteria Average: <span className={`font-black ${getScoreColor(overallGlobalAverage)}`}>{overallGlobalAverage !== null ? `${overallGlobalAverage}%` : "N/A"}</span>
           </div>
-          {CRITERIA_CONFIG[mediaType]?.map((item) => (
-            <div key={item.key}>
-              <div className="flex justify-between text-xs mb-1 font-bold">
-                <span className="text-gray-400">
-                  {item.label}{globalCriteriaAverages[item.key] !== undefined && ` (Global: ${globalCriteriaAverages[item.key]}%)`}
-                </span>
-                <span className="text-blue-400">{criteria[item.key]}</span>
+          {(CRITERIA_CONFIG[mediaType] || []).map((item) => (
+            <div key={item.key} className="space-y-1.5">
+              <div className="flex justify-between text-xs font-bold">
+                <span className="text-gray-400">{item.label}</span>
+                <span className={getScoreColor(criteria[item.key] || 50)}>{criteria[item.key] || 50}%</span>
               </div>
-              <input type="range" min="0" max="100" value={criteria[item.key]} onChange={(e) => updateCriterion(item.key, Number(e.target.value))} className="w-full h-1.5 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-blue-500" />
+              <input type="range" min="0" max="100" value={criteria[item.key] || 50} onChange={(e) => updateCriterion(item.key, Number(e.target.value))} className="w-full h-1.5 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-blue-500" />
             </div>
           ))}
         </div>
       )}
 
-      <button onClick={handleSave} disabled={isSubmitting} className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg transition-colors disabled:opacity-50">
-        {isSubmitting ? "Saving..." : hasRated ? "Update Rating" : "Save Rating"}
+      {message && <div className={`p-3 rounded-lg text-xs font-bold text-center border ${message.type === "success" ? "bg-green-500/10 border-green-500/20 text-green-400" : "bg-red-500/10 border-red-500/20 text-red-400"}`}>{message.text}</div>}
+      <button onClick={handleSave} disabled={isSaving} className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-gray-800 disabled:text-gray-600 text-white font-black py-3 px-4 rounded-xl transition-all tracking-wide text-sm shadow-lg shadow-blue-600/10">
+        {isSaving ? "Saving..." : hasRated ? "Update Rating Data" : "Save Rating Data"}
       </button>
     </div>
   );
