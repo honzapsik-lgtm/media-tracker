@@ -1,8 +1,8 @@
 import { discoverMedia } from "@/app/actions";
 import DiscoverFilters from "@/components/DiscoverFilters";
 import Link from "next/link";
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
+import { getListRankMap, getMediaStatsMap } from "@/lib/media-db";
+import type { DiscoverMediaItem } from "@/app/actions";
 
 // Force Next.js to always fetch fresh Database scores instead of caching the page
 export const dynamic = "force-dynamic";
@@ -30,33 +30,11 @@ export default async function DiscoverPage({
 
   const results = await discoverMedia(type, genre, year, sort);
 
-  // Bulk-fetch Community Stats and List Ranks from Supabase
-  const cookieStore = await cookies();
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { getAll: () => cookieStore.getAll() } }
-  );
-
-  const mediaIds = results?.map((r: any) => r.id) || [];
-  const statsMap: Record<string, number> = {};
-  const rankMap: Record<string, number> = {};
-
-  if (mediaIds.length > 0) {
-    const { data: stats } = await supabase
-      .from('media_stats')
-      .select('id, community_average')
-      .in('id', mediaIds);
-    
-    if (stats) stats.forEach(s => { statsMap[s.id] = s.community_average; });
-
-    const { data: ranks } = await supabase
-      .from('global_media_placements')
-      .select('media_id, category_global_rank')
-      .in('media_id', mediaIds);
-      
-    if (ranks) ranks.forEach(r => { rankMap[r.media_id] = r.category_global_rank; });
-  }
+  const mediaIds = results?.map((r) => r.id) || [];
+  const [statsMap, rankMap] = await Promise.all([
+    getMediaStatsMap(mediaIds),
+    getListRankMap(mediaIds),
+  ]);
 
   return (
     <main className="min-h-screen bg-gray-950 text-white pb-24 pt-12">
@@ -71,7 +49,7 @@ export default async function DiscoverPage({
           </div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
-            {results.map((item: any) => {
+            {results.map((item: DiscoverMediaItem) => {
               const cScore = statsMap[item.id];
               const gRank = rankMap[item.id];
 

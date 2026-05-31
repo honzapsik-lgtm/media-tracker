@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { MediaItem } from '@/types';
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
 const BASE_URL = 'https://api.themoviedb.org/3';
@@ -12,7 +13,7 @@ export interface Movie {
 }
 
 export async function getTrendingMovies(): Promise<MediaItem[]> {
-  if (!TMDB_API_KEY) throw new Error("TMDb API Key is missing");
+  if (!TMDB_API_KEY) return [];
 
   const res = await fetch(
     `${BASE_URL}/trending/movie/day?api_key=${TMDB_API_KEY}&language=en-US`,

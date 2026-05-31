@@ -1,6 +1,5 @@
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
 import Link from "next/link";
+import { getRankedMedia } from "@/lib/media-db";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -22,34 +21,14 @@ export default async function RankingsPage({
   const params = await searchParams;
   const type = params.type || "show";
   const sort = params.sort || "list_rank"; 
-  const genre = params.genre || "";
-  const year = params.year || "";
   const page = parseInt(params.page || "1", 10);
   
   const limit = 100;
   const from = (page - 1) * limit;
-  const to = from + limit - 1;
-
-  const cookieStore = await cookies();
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { getAll: () => cookieStore.getAll() } }
-  );
-
-  let query = supabase.from('global_leaderboard').select('*', { count: 'exact' }).eq('media_type', type);
-
-  if (sort === 'list_rank') {
-    query = query.not('list_rank', 'is', null).order('list_rank', { ascending: true });
-  } else if (sort === 'community') {
-    query = query.not('community_average', 'is', null).order('community_average', { ascending: false }).order('total_ratings', { ascending: false });
-  } else if (sort === 'popular') {
-    query = query.not('total_ratings', 'is', null).order('total_ratings', { ascending: false });
-  }
 
   // NOTE: genre and year filters would be applied to the query here once the DB supports it
   
-  const { data: results, count } = await query.range(from, to);
+  const { results, count } = await getRankedMedia(type, sort, page, limit);
   const hasNext = count ? page * limit < count : false;
   const hasPrev = page > 1;
 
@@ -119,7 +98,7 @@ export default async function RankingsPage({
               <p className="text-gray-400 text-lg">No rankings exist in this category yet.</p>
             </div>
           ) : (
-            results.map((item: any, index: number) => {
+            results.map((item, index: number) => {
               const displayRank = sort === 'list_rank' ? item.list_rank : from + index + 1;
 
               return (

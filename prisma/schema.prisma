@@ -6,23 +6,26 @@ datasource db {
   provider = "postgresql"
 }
 
-model media_stats {
+model MediaStats {
   id                String   @id
   media_type        String
   community_average Decimal? @default(0) @db.Decimal
   total_ratings     Int?     @default(0)
+
+  @@map("media_stats")
 }
 
-model user_badges {
+model UserBadge {
   user_id     String    @db.Uuid
   badge_id    String
   unlocked_at DateTime? @default(now()) @db.Timestamptz(6)
-  users       users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user        User      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@id([user_id, badge_id])
+  @@map("user_badges")
 }
 
-model user_ranked_lists {
+model UserRankedList {
   id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   user_id       String?   @db.Uuid
   media_id      String
@@ -30,13 +33,14 @@ model user_ranked_lists {
   rank_position Int
   created_at    DateTime? @default(now()) @db.Timestamptz(6)
   updated_at    DateTime? @default(now()) @db.Timestamptz(6)
-  users         users?    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user          User?     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([user_id, media_id])
+  @@map("user_ranked_lists")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model user_ratings {
+model UserRating {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   user_id         String   @db.Uuid
   media_id        String
@@ -50,12 +54,13 @@ model user_ratings {
   is_deep_review  Boolean? @default(false)
   rank_position   Int?
   created_at      DateTime @default(now()) @db.Timestamptz(6)
-  users           users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user            User     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([user_id, media_id])
+  @@map("user_ratings")
 }
 
-model user_watchlist {
+model UserWatchlist {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   user_id     String?   @db.Uuid
   media_id    String
@@ -64,26 +69,33 @@ model user_watchlist {
   media_type  String?
   status      String?   @default("plan_to_watch")
   added_at    DateTime? @default(now()) @db.Timestamptz(6)
-  users       users?    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user        User?     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([user_id, media_id])
+  @@map("user_watchlist")
 }
 
-model users {
+model User {
   id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name          String?
   email         String?   @unique
   emailVerified DateTime?
   image         String?
   created_at    DateTime? @default(now()) @db.Timestamptz(6)
+  realName      String?
+  stateRegion   String?
+  country       String?
+  showcaseBadges String[] @default([])
   
   // Relations to the new NextAuth tables and your existing tables
   accounts      Account[]
   sessions      Session[]
-  ratings       user_ratings[]
-  watchlist     user_watchlist[]
-  badges        user_badges[]
-  ranked_lists  user_ranked_lists[]
+  ratings       UserRating[]
+  watchlist     UserWatchlist[]
+  badges        UserBadge[]
+  ranked_lists  UserRankedList[]
+
+  @@map("users")
 }
 
 // 2. NextAuth Required Tables (OAuth Accounts & Sessions)
@@ -101,7 +113,7 @@ model Account {
   id_token           String? @db.Text
   session_state      String?
 
-  user users @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
 }
@@ -111,7 +123,7 @@ model Session {
   sessionToken String   @unique
   userId       String   @db.Uuid
   expires      DateTime
-  user         users    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model VerificationToken {

@@ -1,65 +1,30 @@
 import ProfileTabs from "@/components/ProfileTabs";
 import ProfileHeader from "@/components/ProfileHeader";
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
+import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
+import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { formatProfileRating } from "@/lib/media-db";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export default async function ProfilePage() {
-  const cookieStore = await cookies();
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { getAll: () => cookieStore.getAll() } }
-  );
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) redirect("/");
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    include: {
+      ratings: { orderBy: { created_at: "desc" } },
+      badges: { select: { badge_id: true, unlocked_at: true } },
+    },
+  });
 
-  if (!user) {
-    redirect("/login");
-  }
-
-  const { data: ratings, error } = await supabase
-    .from("user_ratings")
-    .select("*")
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    console.error("Error fetching profile data:", error);
-  }
-
-  const { data: unlockedBadges } = await supabase
-    .from("user_badges")
-    .select("badge_id, unlocked_at")
-    .eq("user_id", user.id);
+  if (!user) redirect("/");
   
-  const badges = unlockedBadges || [];
-
-  const formattedData = ratings?.map((row) => {
-    const parts = row.media_id.split('-');
-    let typeLabel = "UNKNOWN";
-
-    if (parts[0] === 'tmdb') {
-      typeLabel = parts[1] === 'movie' ? 'MOVIE' : 'SHOW';
-    } else if (parts[0] === 'rawg') {
-      typeLabel = 'GAME';
-    } else if (parts[0] === 'manga') {
-      typeLabel = 'MANGA';
-    }
-
-    return {
-      mediaId: row.media_id,
-      score: row.score,
-      reviewText: row.review_text,
-      title: row.media_title || `Unknown Title (${row.media_id})`,
-      image: row.media_image || null,
-      type: typeLabel,
-      rankPosition: row.rank_position || null,
-    };
-  }) || [];
+  const badges = user.badges || [];
+  const formattedData = user.ratings.map(formatProfileRating);
 
   return (
     <main className="min-h-screen bg-gray-950 text-white pt-24 pb-12 px-8">

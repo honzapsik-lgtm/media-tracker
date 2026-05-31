@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { createBrowserClient } from "@supabase/ssr";
 import { useRouter } from "next/navigation";
 
 const CRITERIA_CONFIG: Record<string, { key: string; label: string }[]> = {
@@ -58,51 +57,35 @@ export default function RatingSlider({ mediaId, mediaType, mediaTitle, mediaImag
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
-
   const fetchData = useCallback(async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data: personalData } = await supabase.from("user_ratings")
-          .select("score, is_deep_review, criteria_scores")
-          .eq("user_id", user.id).eq("media_id", mediaId).single();
+      const res = await fetch(`/api/ratings?mediaId=${encodeURIComponent(mediaId)}`);
+      if (!res.ok) return;
+      const data = await res.json() as {
+        personal?: { score: number; is_deep_review: boolean | null; criteria_scores: Record<string, number> | null } | null;
+        globalCriteriaAverages?: Record<string, number>;
+      };
 
-        if (personalData) {
-          setRating(personalData.score);
-          setHasRated(true);
-          if (personalData.is_deep_review) {
-            setIsDeepReview(true);
-            if (personalData.criteria_scores) setCriteria(prev => ({ ...prev, ...(personalData.criteria_scores as Record<string, number>) }));
+      if (data.personal) {
+        setRating(data.personal.score);
+        setHasRated(true);
+        if (data.personal.is_deep_review) {
+          setIsDeepReview(true);
+          if (data.personal.criteria_scores) {
+            setCriteria(prev => ({ ...prev, ...data.personal!.criteria_scores }));
           }
         }
       }
 
-      const { data: globalData } = await supabase.from("user_ratings")
-        .select("criteria_scores").eq("media_id", mediaId).eq("is_deep_review", true);
-
-      if (globalData && globalData.length > 0) {
-        const sums: Record<string, number> = {};
-        const counts: Record<string, number> = {};
-        globalData.forEach((row) => {
-          const scores = row.criteria_scores as Record<string, number> | null;
-          if (scores && typeof scores === "object") {
-            Object.entries(scores).forEach(([key, val]) => {
-              if (typeof val === "number") { sums[key] = (sums[key] || 0) + val; counts[key] = (counts[key] || 0) + 1; }
-            });
-          }
-        });
-        const averages: Record<string, number> = {};
-        Object.keys(sums).forEach((key) => { averages[key] = Math.round(sums[key] / counts[key]); });
-        setGlobalCriteriaAverages(averages);
-      }
+      setGlobalCriteriaAverages(data.globalCriteriaAverages ?? {});
     } catch (err) { console.error(err); }
-  }, [mediaId, supabase]);
+  }, [mediaId]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => {
+    // The async fetch hydrates client-only rating state after the first render.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchData();
+  }, [fetchData]);
 
   const updateCriterion = (key: string, value: number) => { setCriteria((prev) => ({ ...prev, [key]: value })); };
 
@@ -114,22 +97,33 @@ export default function RatingSlider({ mediaId, mediaType, mediaTitle, mediaImag
   const handleSave = async () => {
     setIsSaving(true); setMessage(null);
     try {
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError || !user) throw new Error("You must be logged in to rate media.");
-
       const payloadCriteria = isDeepReview ? criteria : {};
 
-      const { error } = await supabase.from("user_ratings").upsert(
-        { user_id: user.id, media_id: mediaId, score: rating, is_deep_review: isDeepReview, criteria_scores: payloadCriteria, media_title: mediaTitle, media_image: mediaImage },
-        { onConflict: "user_id,media_id" }
-      );
+      const res = await fetch("/api/ratings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mediaId,
+          mediaType,
+          score: rating,
+          isDeepReview,
+          criteriaScores: payloadCriteria,
+          mediaTitle,
+          mediaImage,
+        }),
+      });
 
-      if (error) throw error;
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Something went wrong.");
+      }
       setMessage({ type: "success", text: "Rating saved successfully!" });
       setHasRated(true);
       fetchData(); 
       router.refresh(); // Tells Next.js to instantly reload the server data on the main page
-    } catch (err: any) { setMessage({ type: "error", text: err.message || "Something went wrong." }); } 
+    } catch (err) {
+      setMessage({ type: "error", text: err instanceof Error ? err.message : "Something went wrong." });
+    } 
     finally { setIsSaving(false); }
   };
 

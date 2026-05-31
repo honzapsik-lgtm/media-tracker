@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { createBrowserClient } from "@supabase/ssr";
 
 export default function WatchlistButton({ 
   mediaId, title, image, type 
@@ -11,53 +10,31 @@ export default function WatchlistButton({
   const [status, setStatus] = useState<string | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
-
   useEffect(() => {
     const fetchStatus = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data } = await supabase
-        .from("user_watchlist")
-        .select("status")
-        .eq("user_id", user.id)
-        .eq("media_id", mediaId)
-        .single();
-
-      if (data) setStatus(data.status);
+      const res = await fetch(`/api/watchlist?mediaId=${encodeURIComponent(mediaId)}`);
+      if (!res.ok) return;
+      const data = await res.json() as { status: string | null };
+      setStatus(data.status);
     };
     fetchStatus();
-  }, [mediaId, supabase]);
+  }, [mediaId]);
 
   const toggleWatchlist = async () => {
     setIsUpdating(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user) {
-      alert("You must be logged in to track media.");
-      setIsUpdating(false);
-      return;
-    }
 
     if (status) {
-      await supabase.from("user_watchlist").delete().eq("user_id", user.id).eq("media_id", mediaId);
-      setStatus(null);
+      const res = await fetch(`/api/watchlist?mediaId=${encodeURIComponent(mediaId)}`, { method: "DELETE" });
+      if (res.ok) setStatus(null);
+      else alert("You must be logged in to track media.");
     } else {
-      const payload = {
-        user_id: user.id,
-        media_id: mediaId,
-        media_title: title,
-        media_image: image,
-        media_type: type,
-        status: "plan_to_watch" // Acts as the default 'unplayed/unread' status across all categories
-      };
-      
-      await supabase.from("user_watchlist").upsert(payload);
-      setStatus("plan_to_watch");
+      const res = await fetch("/api/watchlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mediaId, title, image, type, status: "plan_to_watch" }),
+      });
+      if (res.ok) setStatus("plan_to_watch");
+      else alert("You must be logged in to track media.");
     }
     
     setIsUpdating(false);

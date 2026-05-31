@@ -1,11 +1,10 @@
 import { getSeasonEpisodes } from "@/app/actions";
 import { getTMDbDetails } from "@/lib/tmdb";
 import RatingSlider from "@/components/RatingSlider";
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import ExpandableText from "@/components/ExpandableText";
+import { getListRank, getMediaStats } from "@/lib/media-db";
 
 export interface Episode {
   id: number;
@@ -78,24 +77,10 @@ export default async function SeasonPage({
   const seasonMediaId = `${id}-s${seasonNum}`;
   const seasonFullTitle = `${showDetails.title} - ${seasonMeta?.name ?? `Season ${seasonNum}`}`;
 
-  const cookieStore = await cookies();
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { getAll: () => cookieStore.getAll() } }
-  );
-
-  const { data: stats } = await supabase
-    .from("media_stats")
-    .select("community_average, total_ratings")
-    .eq("id", seasonMediaId)
-    .single();
-
-  const { data: placement } = await supabase
-    .from('global_media_placements')
-    .select('category_global_rank')
-    .eq('media_id', seasonMediaId)
-    .single();
+  const [stats, placementRank] = await Promise.all([
+    getMediaStats(seasonMediaId),
+    getListRank(seasonMediaId),
+  ]);
 
   const seasonLabel = seasonMeta?.name ?? `Season ${seasonNum}`;
 
@@ -179,7 +164,7 @@ export default async function SeasonPage({
               <div className="shrink-0">
                 <p className="text-xs text-blue-500 uppercase tracking-widest font-bold mb-1">List Rank</p>
                 <p className="text-4xl font-extrabold text-white">
-                  {placement?.category_global_rank ? `#${placement.category_global_rank}` : '-'}
+                  {placementRank ? `#${placementRank}` : '-'}
                 </p>
                 <p className="text-xs text-gray-500 mt-1 uppercase">Global Show</p>
               </div>

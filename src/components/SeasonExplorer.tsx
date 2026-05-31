@@ -16,13 +16,23 @@ interface SeasonExplorerProps {
   seasons: Season[];
 }
 
+interface EpisodeSummary {
+  id: number;
+  name: string;
+  episode_number: number;
+  overview: string;
+  image: string | null;
+  air_date: string;
+  runtime: number;
+}
+
 export default function SeasonExplorer({ tvId, seasons }: SeasonExplorerProps) {
   const validSeasons = seasons.filter(s => s.season_number > 0);
   
   const [selectedSeason, setSelectedSeason] = useState<number>(
     validSeasons.length > 0 ? validSeasons[0].season_number : 1
   );
-  const [episodes, setEpisodes] = useState<any[]>([]);
+  const [episodes, setEpisodes] = useState<EpisodeSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
   // NEW: Track which episode's rating slider is currently open
@@ -65,7 +75,12 @@ export default function SeasonExplorer({ tvId, seasons }: SeasonExplorerProps) {
       {/* NEW: The Dedicated Season Rating Box */}
       <div className="bg-gray-900 border border-gray-800 p-6 rounded-2xl mb-8 shadow-xl">
         <h3 className="text-xl font-bold mb-4 text-blue-400">Rate Season {selectedSeason} Overall</h3>
-        <RatingSlider mediaId={seasonMediaId} mediaType="season" />
+        <RatingSlider
+          mediaId={seasonMediaId}
+          mediaType="show"
+          mediaTitle={`Season ${selectedSeason}`}
+          mediaImage={null}
+        />
       </div>
 
       {/* Episode List */}
@@ -117,7 +132,9 @@ export default function SeasonExplorer({ tvId, seasons }: SeasonExplorerProps) {
                 <div className="p-6 bg-gray-950 border-t border-gray-800 animate-in slide-in-from-top-2 duration-200">
                   <RatingSlider 
                     mediaId={`${seasonMediaId}-e${ep.episode_number}`} 
-                    mediaType="episode" 
+                    mediaType="show"
+                    mediaTitle={ep.name}
+                    mediaImage={ep.image}
                   />
                 </div>
               )}

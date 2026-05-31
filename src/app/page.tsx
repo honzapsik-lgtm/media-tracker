@@ -9,7 +9,7 @@ export default async function Home() {
     <main className="min-h-screen bg-gray-950 text-white p-8">
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-12">
-          <h1 className="text-5xl font-extrabold mb-6 text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500">
+          <h1 className="text-5xl font-extrabold leading-tight pb-2 mb-4 text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500">
             Media Aggregator
           </h1>
           <SearchBar />

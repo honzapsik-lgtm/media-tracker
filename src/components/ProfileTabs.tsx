@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { createBrowserClient } from "@supabase/ssr";
 import Link from "next/link";
 import Top100Ranker from "@/components/Top100Ranker";
 import { BADGE_DICTIONARY } from "@/components/ProfileHeader";
@@ -15,18 +14,24 @@ const getScoreColor = (score: number | null | undefined) => {
   return "bg-gray-900/80 text-gray-500 border-gray-700"; 
 };
 
-export default function ProfileTabs({ initialData, userBadges = [] }: { initialData: any[], userBadges?: any[] }) {
-  const [activeTab, setActiveTab] = useState<'ratings' | 'reviews' | 'top100' | 'stats' | 'achievements'>('ratings');
-  const [processedData, setProcessedData] = useState(initialData || []);
-  
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editReviewText, setEditReviewText] = useState("");
-  const [editScore, setEditScore] = useState<number>(50);
+interface ProfileItem {
+  mediaId: string;
+  score: number;
+  reviewText: string | null;
+  title: string;
+  image: string | null;
+  type: string;
+  rankPosition: number | null;
+}
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+interface UserBadge {
+  badge_id: string;
+  unlocked_at: Date | null;
+}
+
+export default function ProfileTabs({ initialData, userBadges = [] }: { initialData: ProfileItem[], userBadges?: UserBadge[] }) {
+  const [activeTab, setActiveTab] = useState<'ratings' | 'reviews' | 'top100' | 'stats' | 'achievements'>('ratings');
+  const [processedData] = useState(initialData || []);
 
   const getMediaUrl = (mediaId: string) => {
     if (!mediaId) return "#";
@@ -41,17 +46,6 @@ export default function ProfileTabs({ initialData, userBadges = [] }: { initialD
   const getDisplayType = (type: string, mediaId: string) => {
     if (type === 'SHOW' && mediaId.includes('-s')) return 'SEASON';
     return type;
-  };
-
-  const handleDelete = async (mediaId: string) => {
-    if (!window.confirm("Are you sure you want to delete this rating completely?")) return;
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const { error } = await supabase.from("user_ratings").delete().eq("user_id", user.id).eq("media_id", mediaId);
-    if (!error) {
-      setProcessedData(prev => prev.filter(item => item.mediaId !== mediaId));
-    }
   };
 
   // ---- STATISTICS LOGIC ----
@@ -134,7 +128,7 @@ export default function ProfileTabs({ initialData, userBadges = [] }: { initialD
       {activeTab === 'stats' && (
         <div className="grid md:grid-cols-2 gap-8">
           <div className="bg-gray-900 p-8 rounded-2xl border border-gray-800 shadow-xl">
-            <h3 className="text-2xl font-black mb-2">The Critic's Offset</h3>
+            <h3 className="text-2xl font-black mb-2">The Critic&apos;s Offset</h3>
             <p className="text-gray-400 text-sm mb-8">How harsh or generous are your ratings?</p>
             <div className="flex items-end gap-6 mb-6">
               <div className="text-6xl font-black text-blue-500">{avgScore}%</div>
@@ -182,7 +176,7 @@ export default function ProfileTabs({ initialData, userBadges = [] }: { initialD
                     <h3 className={`font-black text-lg tracking-tight truncate ${isUnlocked ? 'text-gray-100' : 'text-gray-500'}`}>{badge.title}</h3>
                     {isUnlocked ? (
                       <span className="text-[10px] shrink-0 font-black uppercase tracking-widest text-blue-400">
-                        Unlocked {new Date(unlockedData.unlocked_at).toLocaleDateString()}
+                        Unlocked {unlockedData.unlocked_at ? new Date(unlockedData.unlocked_at).toLocaleDateString() : "recently"}
                       </span>
                     ) : (
                       <span className="text-[10px] shrink-0 font-bold text-gray-500">

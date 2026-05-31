@@ -4,12 +4,19 @@ import { getGameDetails } from "@/lib/games";
 import { getBookDetails } from "@/lib/books";
 import RatingSlider from "@/components/RatingSlider";
 import TextReviewEditor from "@/components/TextReviewEditor";
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import ExpandableText from "@/components/ExpandableText";
 import WatchlistButton from "@/components/WatchlistButton";
+import { prisma } from "@/lib/prisma";
+import {
+  calculateCriteriaAverages,
+  getDeepCriteriaRows,
+  getListRank,
+  getListRankMap,
+  getMediaStats,
+  getMediaStatsMap,
+} from "@/lib/media-db";
 
 const CRITERIA_CONFIG: Record<string, { key: string; label: string }[]> = {
   game: [ { key: "narrative", label: "Narrative" }, { key: "gameplay", label: "Gameplay" }, { key: "visuals", label: "Visuals and graphics" }, { key: "performance", label: "Performance" }, { key: "audio", label: "Audio and soundtrack" } ],
@@ -51,44 +58,30 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
   if (!mediaDetails) return notFound();
   const mediaTypeKey = (mediaDetails.type as "game" | "movie" | "show" | "manga") || "movie";
 
-  const cookieStore = await cookies();
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { getAll: () => cookieStore.getAll() } }
-  );
+  const [stats, placementRank, globalData, reviews] = await Promise.all([
+    getMediaStats(mediaId),
+    getListRank(mediaId),
+    getDeepCriteriaRows(mediaId),
+    prisma.userRating.findMany({
+      where: { media_id: mediaId, review_text: { not: null } },
+      select: { score: true, review_text: true, username: true, avatar_url: true, created_at: true },
+      orderBy: { created_at: "desc" },
+    }),
+  ]);
 
-  const { data: stats } = await supabase.from('media_stats').select('community_average, total_ratings').eq('id', mediaId).single();
-  const { data: placement } = await supabase.from('global_media_placements').select('category_global_rank').eq('media_id', mediaId).single();
-
-  const { data: globalData } = await supabase.from("user_ratings").select("criteria_scores").eq("media_id", mediaId).eq("is_deep_review", true);
-  const { data: reviews } = await supabase.from("user_ratings").select("score, review_text, username, avatar_url, created_at").eq("media_id", mediaId).not("review_text", "is", null).order("created_at", { ascending: false });
-
-  const globalCriteriaAverages: Record<string, number> = {};
-  if (globalData && globalData.length > 0) {
-    const sums: Record<string, number> = {};
-    const counts: Record<string, number> = {};
-    globalData.forEach((row) => {
-      const scores = row.criteria_scores as Record<string, number> | null;
-      if (scores && typeof scores === "object") {
-        Object.entries(scores).forEach(([key, val]) => {
-          if (typeof val === "number") { sums[key] = (sums[key] || 0) + val; counts[key] = (counts[key] || 0) + 1; }
-        });
-      }
-    });
-    Object.keys(sums).forEach((key) => { globalCriteriaAverages[key] = Math.round(sums[key] / counts[key]); });
-  }
+  const globalCriteriaAverages = calculateCriteriaAverages(globalData);
 
   const seasonStatsMap: Record<string, number> = {};
   const seasonRankMap: Record<string, number> = {};
   
   if (mediaTypeKey === "show" && mediaDetails.seasons) {
-    const seasonIds = mediaDetails.seasons.map((s: any) => `${mediaId}-s${s.season_number}`);
-    const { data: sStats } = await supabase.from('media_stats').select('id, community_average').in('id', seasonIds);
-    if (sStats) sStats.forEach(s => { seasonStatsMap[s.id] = s.community_average; });
-
-    const { data: sRanks } = await supabase.from('global_media_placements').select('media_id, category_global_rank').in('media_id', seasonIds);
-    if (sRanks) sRanks.forEach(r => { seasonRankMap[r.media_id] = r.category_global_rank; });
+    const seasonIds = (mediaDetails.seasons as TmdbSeasonSummary[]).map((s) => `${mediaId}-s${s.season_number}`);
+    const [sStats, sRanks] = await Promise.all([
+      getMediaStatsMap(seasonIds),
+      getListRankMap(seasonIds),
+    ]);
+    Object.assign(seasonStatsMap, sStats);
+    Object.assign(seasonRankMap, sRanks);
   }
 
   const getPlatformName = (type: string) => {
@@ -207,7 +200,7 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
               <div className="shrink-0">
                 <p className="text-xs text-blue-500 uppercase tracking-widest font-bold mb-1">List Rank</p>
                 <p className="text-4xl font-extrabold text-white">
-                  {placement?.category_global_rank ? `#${placement.category_global_rank}` : '-'}
+                  {placementRank ? `#${placementRank}` : '-'}
                 </p>
                 <p className="text-xs text-gray-500 mt-1 uppercase">Global {mediaTypeKey}</p>
               </div>
@@ -291,14 +284,14 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
                 <div key={index} className="bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl flex flex-col">
                   <div className="flex justify-between items-start mb-4">
                     <div className="flex items-center gap-3">
-                      {review.avatar_url ? ( <img src={review.avatar_url} alt={review.username} className="w-10 h-10 rounded-full border border-gray-700 object-cover" /> ) : ( <div className="w-10 h-10 rounded-full bg-blue-900 border border-blue-500 flex items-center justify-center font-bold text-sm">{review.username?.charAt(0).toUpperCase() || '?'}</div> )}
+                  {review.avatar_url ? ( <img src={review.avatar_url} alt={review.username ?? "Reviewer"} className="w-10 h-10 rounded-full border border-gray-700 object-cover" /> ) : ( <div className="w-10 h-10 rounded-full bg-blue-900 border border-blue-500 flex items-center justify-center font-bold text-sm">{review.username?.charAt(0).toUpperCase() || '?'}</div> )}
                       <div><p className="font-bold text-gray-200">{review.username}</p><p className="text-xs text-gray-500">{new Date(review.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p></div>
                     </div>
                     <div className={`px-3 py-1 rounded-lg border font-black ${review.score >= 95 ? 'bg-yellow-900/50 border-yellow-500 text-yellow-400 shadow-[0_0_8px_rgba(250,204,21,0.3)]' : review.score >= 75 ? 'bg-green-900 border-green-500 text-green-400' : review.score >= 50 ? 'bg-blue-900 border-blue-500 text-blue-400' : review.score >= 25 ? 'bg-gray-800 border-gray-600 text-gray-400' : 'bg-gray-950 border-gray-800 text-gray-600'}`}>
                       {review.score}%
                     </div>
                   </div>
-                  <p className="text-gray-300 leading-relaxed whitespace-pre-wrap flex-1">"{review.review_text}"</p>
+                  <p className="text-gray-300 leading-relaxed whitespace-pre-wrap flex-1">&ldquo;{review.review_text}&rdquo;</p>
                 </div>
               ))}
             </div>

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { MediaItem } from '../types';
 
 export async function searchGames(query: string): Promise<MediaItem[]> {

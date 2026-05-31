@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { createBrowserClient } from "@supabase/ssr";
+import { useRouter } from "next/navigation";
 
 export default function TextReviewEditor({ 
   mediaId,
@@ -12,69 +12,48 @@ export default function TextReviewEditor({
   mediaTitle: string;
   mediaImage: string | null;
 }) {
+  const router = useRouter();
   const [reviewText, setReviewText] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [hasExistingReview, setHasExistingReview] = useState(false);
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
-
   useEffect(() => {
     async function fetchExisting() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      const res = await fetch(`/api/reviews?mediaId=${encodeURIComponent(mediaId)}`);
+      if (!res.ok) return;
+      const data = await res.json() as { reviewText: string | null };
 
-      const { data } = await supabase
-        .from("user_ratings")
-        .select("review_text")
-        .eq("user_id", user.id)
-        .eq("media_id", mediaId)
-        .single();
-
-      if (data?.review_text) {
-        setReviewText(data.review_text);
+      if (data.reviewText) {
+        setReviewText(data.reviewText);
         setHasExistingReview(true);
       }
     }
     fetchExisting();
-  }, [mediaId, supabase]);
+  }, [mediaId]);
 
   const handleSave = async () => {
     setIsSubmitting(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user) {
-      alert("You must be logged in to review!");
-      setIsSubmitting(false);
-      return;
-    }
 
-    const username = user.user_metadata?.custom_claims?.global_name || user.email?.split('@')[0] || 'Anonymous';
-    const avatarUrl = user.user_metadata?.avatar_url || null;
-
-    // We only UPDATE the text. The score is handled by the RatingSlider.
-    const { error } = await supabase
-      .from("user_ratings")
-      .upsert({
-        user_id: user.id,
-        media_id: mediaId,
-        review_text: reviewText.trim() === "" ? null : reviewText,
-        username: username,
-        avatar_url: avatarUrl,
-        media_title: mediaTitle,
-        media_image: mediaImage
-      }, { onConflict: "user_id, media_id" });
+    const res = await fetch("/api/reviews", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mediaId,
+        reviewText,
+        mediaTitle,
+        mediaImage,
+      }),
+    });
 
     setIsSubmitting(false);
-    if (!error) {
+    if (res.ok) {
       setHasExistingReview(true);
       setIsEditing(false);
-      window.location.reload(); 
+      router.refresh();
     } else {
-      alert(`Error saving review: ${error.message}`);
+      const data = await res.json().catch(() => ({}));
+      alert(`Error saving review: ${data.error || "Something went wrong."}`);
     }
   };
 
@@ -125,7 +104,7 @@ export default function TextReviewEditor({
         </div>
       ) : (
         <p className="text-gray-300 leading-relaxed italic border-l-4 border-gray-700 pl-4 py-2">
-          "{reviewText}"
+          &ldquo;{reviewText}&rdquo;
         </p>
       )}
     </div>

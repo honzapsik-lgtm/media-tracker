@@ -1,11 +1,10 @@
 import { getSeasonEpisodes } from "@/app/actions";
 import RatingSlider from "@/components/RatingSlider";
 import ExpandableText from "@/components/ExpandableText";
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Episode } from "@/app/media/[id]/season/[seasonNumber]/page";
+import { getMediaStats } from "@/lib/media-db";
 
 export default async function EpisodePage({
   params,
@@ -44,19 +43,7 @@ export default async function EpisodePage({
       : null;
 
   const episodeMediaId = `${id}-s${seasonNum}-e${epNum}`;
-
-  const cookieStore = await cookies();
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { getAll: () => cookieStore.getAll() } }
-  );
-
-  const { data: stats } = await supabase
-    .from("media_stats")
-    .select("community_average, total_ratings")
-    .eq("id", episodeMediaId)
-    .single();
+  const stats = await getMediaStats(episodeMediaId);
 
   return (
     <main className="min-h-screen bg-gray-950 text-white relative pb-24">
@@ -84,7 +71,12 @@ export default async function EpisodePage({
             )}
 
             <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 shadow-xl">
-              <RatingSlider mediaId={episodeMediaId} mediaType="episode" />
+              <RatingSlider
+                mediaId={episodeMediaId}
+                mediaType="show"
+                mediaTitle={episode.name}
+                mediaImage={episode.image}
+              />
             </div>
           </div>
 

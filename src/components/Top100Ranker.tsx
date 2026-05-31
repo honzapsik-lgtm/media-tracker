@@ -1,32 +1,30 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { createBrowserClient } from "@supabase/ssr";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-export default function Top100Ranker({ rawData }: { rawData: any[] }) {
-  const router = useRouter();
-  
-  // Sort logic: Prioritize saved DB ranks first. If unranked, fallback to numeric score.
-  const [items, setItems] = useState(() => {
-    return [...rawData].sort((a, b) => {
-      if (a.rankPosition && b.rankPosition) return a.rankPosition - b.rankPosition;
-      if (a.rankPosition) return -1;
-      if (b.rankPosition) return 1;
-      return b.score - a.score;
-    });
+interface RankerItem {
+  mediaId: string;
+  title: string;
+  image: string | null;
+  type: string;
+  score: number;
+  rankPosition: number | null;
+}
+
+const sortItems = (rawData: RankerItem[]) =>
+  [...rawData].sort((a, b) => {
+    if (a.rankPosition && b.rankPosition) return a.rankPosition - b.rankPosition;
+    if (a.rankPosition) return -1;
+    if (b.rankPosition) return 1;
+    return b.score - a.score;
   });
 
-  // Force React to sync and resort the list whenever fresh database data arrives
-  useEffect(() => {
-    setItems([...rawData].sort((a, b) => {
-      if (a.rankPosition && b.rankPosition) return a.rankPosition - b.rankPosition;
-      if (a.rankPosition) return -1;
-      if (b.rankPosition) return 1;
-      return b.score - a.score;
-    }));
-  }, [rawData]);
+export default function Top100Ranker({ rawData }: { rawData: RankerItem[] }) {
+  const router = useRouter();
+  const sortedData = useMemo(() => sortItems(rawData), [rawData]);
+  const [items, setItems] = useState(sortedData);
   
   const [isSaving, setIsSaving] = useState(false);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
@@ -36,11 +34,6 @@ export default function Top100Ranker({ rawData }: { rawData: any[] }) {
 
   const filteredItems = items.filter(
     (item) => (item.type || "").toLowerCase() === activeTabType.toLowerCase()
-  );
-
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
 
   const handleDragStart = (index: number) => setDraggedIndex(index);
@@ -64,30 +57,20 @@ export default function Top100Ranker({ rawData }: { rawData: any[] }) {
   const handleSaveRankings = async () => {
     setIsSaving(true);
     try {
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError || !user) {
-        alert("Authentication Error: You must be logged in to save ranks.");
-        return;
-      }
+      const res = await fetch("/api/rankings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rankings: filteredItems.map((item, index) => ({
+            mediaId: item.mediaId,
+            rankPosition: index + 1,
+          })),
+        }),
+      });
 
-      const updates = filteredItems.map((item, index) => ({
-        user_id: user.id,
-        media_id: item.mediaId,
-        rank_position: index + 1,
-      }));
-
-      // Strict error catching to prevent silent failures
-      for (const row of updates) {
-        const { error } = await supabase
-          .from("user_ratings")
-          .update({ rank_position: row.rank_position })
-          .eq("user_id", row.user_id)
-          .eq("media_id", row.media_id);
-          
-        if (error) {
-          alert(`Database Error on ${row.media_id}: ${error.message}`);
-          throw error;
-        }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Could not save rankings.");
       }
 
       alert("Infinite Rankings saved successfully!");

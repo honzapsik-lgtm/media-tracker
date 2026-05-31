@@ -2,10 +2,16 @@
 
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
 
 type ListCategory = "watch" | "play" | "read";
+interface WatchlistItem {
+  media_id: string;
+  media_title: string | null;
+  media_image: string | null;
+  media_type: string | null;
+  status: string | null;
+}
 
 export default function AppDrawer() {
   const { data: session } = useSession();
@@ -15,11 +21,12 @@ export default function AppDrawer() {
   const [activeView, setActiveView] = useState<"menu" | "list">("menu");
   const [activeCategory, setActiveCategory] = useState<ListCategory>("watch");
   
-  const [watchlist, setWatchlist] = useState<any[]>([]);
+  const [watchlist, setWatchlist] = useState<WatchlistItem[]>([]);
   const [activeTab, setActiveTab] = useState("plan_to_watch");
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
   }, []);
 
@@ -28,10 +35,11 @@ export default function AppDrawer() {
     
     const fetchWatchlist = async () => {
       setIsLoading(true);
-      // TODO: Replace with Prisma API fetch
-      // const res = await fetch('/api/watchlist');
-      // const data = await res.json();
-      // setWatchlist(data);
+      const res = await fetch('/api/watchlist');
+      if (res.ok) {
+        const data = await res.json() as WatchlistItem[];
+        setWatchlist(data);
+      }
       setIsLoading(false);
     };
 
@@ -39,16 +47,28 @@ export default function AppDrawer() {
   }, [isOpen, activeView, session]);
 
   const handleRemove = async (mediaId: string) => {
-    // TODO: Connect to Prisma
+    const res = await fetch(`/api/watchlist?mediaId=${encodeURIComponent(mediaId)}`, { method: "DELETE" });
+    if (res.ok) setWatchlist((items) => items.filter((item) => item.media_id !== mediaId));
   };
 
   const handleUpdateStatus = async (mediaId: string, newStatus: string) => {
-    // TODO: Connect to Prisma
+    const res = await fetch("/api/watchlist", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mediaId, status: newStatus }),
+    });
+    if (res.ok) {
+      setWatchlist((items) =>
+        items.map((item) =>
+          item.media_id === mediaId ? { ...item, status: newStatus } : item
+        )
+      );
+    }
   };
 
   const filteredList = watchlist.filter(item => {
     const matchesStatus = item.status === activeTab;
-    const type = item.media_type.toLowerCase();
+    const type = item.media_type?.toLowerCase() ?? "";
     
     let matchesCategory = false;
     if (activeCategory === "watch") matchesCategory = type === "movie" || type === "show";
@@ -76,12 +96,12 @@ export default function AppDrawer() {
   };
 
   const drawerOverlay = (
-    <div className="relative z-[100]">
+    <div className={`fixed inset-0 z-[100] ${isOpen ? "pointer-events-auto" : "pointer-events-none"}`}>
       {isOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity" onClick={handleClose} />
       )}
 
-      <div className={`fixed top-0 right-0 h-full w-full sm:w-96 bg-gray-950 border-l border-gray-800 transform transition-transform duration-300 ease-in-out shadow-2xl flex flex-col ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+      <div className={`fixed top-0 right-0 h-dvh w-full sm:w-96 bg-gray-950 border-l border-gray-800 transform transition-transform duration-300 ease-in-out shadow-2xl flex flex-col pointer-events-auto ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}>
         
         {/* VIEW 1: THE MASTER MENU */}
         {activeView === "menu" && (
@@ -177,7 +197,20 @@ export default function AppDrawer() {
               ) : (
                 filteredList.map((item) => (
                   <div key={item.media_id} className="flex gap-4 bg-gray-900 border border-gray-800 p-3 rounded-xl group relative hover:border-gray-700 transition-colors">
-                    {/* Items map logic remains identical */}
+                    {item.media_image ? (
+                      <img src={item.media_image} alt={item.media_title ?? "Media"} className="h-16 w-12 rounded-md object-cover" />
+                    ) : (
+                      <div className="h-16 w-12 rounded-md bg-gray-900 border border-gray-800" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-bold text-gray-200">{item.media_title ?? item.media_id}</p>
+                      <p className="text-[10px] uppercase tracking-wider text-gray-500">{item.media_type}</p>
+                      <div className="mt-2 flex gap-2">
+                        <button onClick={() => handleUpdateStatus(item.media_id, "plan_to_watch")} className="text-[10px] font-bold text-blue-400 hover:text-blue-300">Plan</button>
+                        <button onClick={() => handleUpdateStatus(item.media_id, "dropped")} className="text-[10px] font-bold text-gray-500 hover:text-gray-300">Dropped</button>
+                        <button onClick={() => handleRemove(item.media_id)} className="text-[10px] font-bold text-red-500 hover:text-red-400">Remove</button>
+                      </div>
+                    </div>
                   </div>
                 ))
               )}
@@ -193,7 +226,7 @@ export default function AppDrawer() {
       <button onClick={() => setIsOpen(true)} className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors focus:outline-none">
         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 6h16M4 12h16M4 18h16" /></svg>
       </button>
-      {mounted && createPortal(drawerOverlay, document.body)}
+      {mounted ? createPortal(drawerOverlay, document.body) : null}
     </>
   );
 }

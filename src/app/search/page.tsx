@@ -35,7 +35,7 @@ export default async function SearchPage({
         <SearchBar />
 
         <h1 className="text-2xl font-bold mb-6">
-          Search Results for: <span className="text-blue-400">"{query}"</span>
+          Search Results for: <span className="text-blue-400">&ldquo;{query}&rdquo;</span>
         </h1>
 
         {combinedResults.length === 0 && query ? (

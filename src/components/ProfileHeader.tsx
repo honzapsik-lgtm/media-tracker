@@ -1,52 +1,70 @@
 "use client";
 
 import { useState } from "react";
-import { createBrowserClient } from "@supabase/ssr";
 import { useRouter } from "next/navigation";
 
 // Shared dictionary so the header knows the names/icons of the badges
 export const BADGE_DICTIONARY = [
-  { id: 'ratings_10', title: 'Initiate', desc: 'Rate 10 total pieces of media.', icon: '🥉' },
-  { id: 'ratings_50', title: 'Critic', desc: 'Rate 50 total pieces of media.', icon: '🥈' },
-  { id: 'ratings_100', title: 'The Completionist', desc: 'Rate 100 total pieces of media.', icon: '🥇' },
-  { id: 'games_10', title: 'Controller Freak', desc: 'Rate 10 different games.', icon: '🎮' },
-  { id: 'manga_10', title: 'Ink & Paper', desc: 'Rate 10 different manga volumes.', icon: '📖' },
-  { id: 'void_stare', title: 'The Void Stare', desc: 'Give a score of 20% or lower. You survived the trash.', icon: '💀' },
-  { id: 'masterpiece', title: 'True Kíno', desc: 'Award a flawless 100% Master Score.', icon: '✨' },
+  { id: 'ratings_10', title: 'Initiate', desc: 'Rate 10 total pieces of media.', icon: '10' },
+  { id: 'ratings_50', title: 'Critic', desc: 'Rate 50 total pieces of media.', icon: '50' },
+  { id: 'ratings_100', title: 'The Completionist', desc: 'Rate 100 total pieces of media.', icon: '100' },
+  { id: 'games_10', title: 'Controller Freak', desc: 'Rate 10 different games.', icon: 'G' },
+  { id: 'manga_10', title: 'Ink & Paper', desc: 'Rate 10 different manga volumes.', icon: 'M' },
+  { id: 'void_stare', title: 'The Void Stare', desc: 'Give a score of 20% or lower. You survived the trash.', icon: '20' },
+  { id: 'masterpiece', title: 'True Kino', desc: 'Award a flawless 100% Master Score.', icon: '100' },
 ];
 
-export default function ProfileHeader({ user, ratings, userBadges = [] }: { user: any; ratings: any[]; userBadges?: any[] }) {
-  const router = useRouter();
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+interface ProfileUser {
+  email: string | null;
+  name: string | null;
+  image: string | null;
+  created_at: Date | null;
+  realName: string | null;
+  stateRegion: string | null;
+  country: string | null;
+  showcaseBadges: string[];
+}
 
+interface ProfileRating {
+  mediaId: string;
+  type: string;
+}
+
+interface UserBadge {
+  badge_id: string;
+  unlocked_at: Date | null;
+}
+
+export default function ProfileHeader({ user, ratings, userBadges = [] }: { user: ProfileUser; ratings: ProfileRating[]; userBadges?: UserBadge[] }) {
+  const router = useRouter();
   const [isEditing, setIsEditing] = useState(false);
-  const [realName, setRealName] = useState(user.user_metadata?.real_name || "");
-  const [stateRegion, setStateRegion] = useState(user.user_metadata?.state_region || "");
-  const [country, setCountry] = useState(user.user_metadata?.country || "");
-  const [showcase, setShowcase] = useState<string[]>(user.user_metadata?.showcase_badges || ["", "", ""]);
+  const [realName, setRealName] = useState(user.realName || "");
+  const [stateRegion, setStateRegion] = useState(user.stateRegion || "");
+  const [country, setCountry] = useState(user.country || "");
+  const [showcase, setShowcase] = useState<string[]>(user.showcaseBadges?.length ? user.showcaseBadges : ["", "", ""]);
   const [isSaving, setIsSaving] = useState(false);
 
   const handleSave = async () => {
     setIsSaving(true);
-    const { error } = await supabase.auth.updateUser({
-      data: { real_name: realName, state_region: stateRegion, country: country, showcase_badges: showcase }
+    const res = await fetch("/api/profile", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ realName, stateRegion, country, showcaseBadges: showcase }),
     });
     setIsSaving(false);
     
-    if (!error) {
+    if (res.ok) {
       setIsEditing(false);
       router.refresh();
     } else {
-      alert(`Update Error: ${error.message}`);
+      const data = await res.json().catch(() => ({}));
+      alert(`Update Error: ${data.error || "Something went wrong."}`);
     }
   };
 
-  const username = user.user_metadata?.custom_claims?.global_name || user.email?.split('@')[0];
+  const username = user.name || user.email?.split('@')[0] || "Anonymous";
   const displayLocation = [stateRegion, country].filter(Boolean).join(", ") || "Location not set";
-  const joinDate = new Date(user.created_at || Date.now()).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const joinDate = (user.created_at ?? new Date(0)).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
   const totalRatings = ratings.length || 1;
   const typeCounts: Record<string, number> = { MOVIE: 0, SHOW: 0, GAME: 0, MANGA: 0 };
@@ -86,8 +104,8 @@ export default function ProfileHeader({ user, ratings, userBadges = [] }: { user
         {/* Left Sub-Column: Avatar & Date */}
         <div className="flex flex-col items-center gap-3 shrink-0">
           <div className="relative">
-            {user.user_metadata?.avatar_url ? (
-               <img src={user.user_metadata.avatar_url} alt="Profile" className="w-32 h-32 rounded-full border-4 border-gray-800 shadow-xl object-cover" />
+            {user.image ? (
+               <img src={user.image} alt="Profile" className="w-32 h-32 rounded-full border-4 border-gray-800 shadow-xl object-cover" />
             ) : (
                <div className="w-32 h-32 rounded-full bg-blue-900 border-4 border-blue-800 flex items-center justify-center text-4xl font-black shadow-xl">
                  {username?.charAt(0).toUpperCase() || '?'}
@@ -139,7 +157,7 @@ export default function ProfileHeader({ user, ratings, userBadges = [] }: { user
           ) : (
             <>
               <h1 className="text-3xl font-black mb-1">{username}</h1>
-              {user.user_metadata?.real_name && <h2 className="text-lg text-gray-300 font-semibold">{user.user_metadata.real_name}</h2>}
+              {user.realName && <h2 className="text-lg text-gray-300 font-semibold">{user.realName}</h2>}
               <p className="text-sm text-gray-500 mt-1 mb-auto">{displayLocation}</p>
               
               {/* Badge Showcase */}

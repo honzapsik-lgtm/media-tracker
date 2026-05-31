@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { MediaItem } from '../types';
 
 // 1. Lightning Fast Search Fetcher

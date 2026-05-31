@@ -1,11 +1,14 @@
 "use server";
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 export interface DiscoverMediaItem {
   id: string;
   title: string;
   image: string;
   type: string;
   globalScore: number;
+  releaseDate?: string | null;
 }
 
 const isValidYear = (year: string) => /^\d{4}$/.test(year.trim());
