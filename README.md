@@ -16,6 +16,17 @@ The app currently uses external media APIs for catalog data and a local PostgreS
 - RAWG powers game search/details/discovery.
 - Jikan powers manga search/details/discovery.
 
+## Features
+
+- **Search & Discovery**: Seamlessly search and explore catalogs of Movies, TV Shows, Games, and Manga pulled directly from TMDB, RAWG, and Jikan.
+- **Scoring System**: Rate any media item on a granular 1-100% scale. Ratings instantly calculate into a global "Community Score" for that piece of media.
+- **Deep Reviews**: Go beyond simple scores by writing detailed text reviews and scoring specific criteria (e.g., Story, Visuals, Audio, Gameplay) for comprehensive critiques.
+- **Personal Ranking Lists**: Curate personal drag-and-drop leaderboards on your profile. Sort your favorite games, movies, shows, seasons, and episodes to create your ultimate top-tier lists.
+- **Global Rankings**: Explore community-driven global leaderboards. Media is mathematically ranked via a "List Rank" algorithm (seeded by users' personal ranking lists) as well as by Community Score and Popularity.
+- **Granular Media Tracking**: Treat TV Seasons and individual TV Episodes as first-class citizens. Rate, review, and rank seasons and episodes independently from their parent shows.
+- **Watchlists**: Maintain "Plan to Watch", "Watching", "Completed", and "Dropped" lists for your media backlog.
+- **Profile Stats & Badges**: Unlock gamified badges based on your reviewing habits and view dynamic statistical breakdowns of your ratings.
+
 ## Architecture & Optimizations
 
 - **Hybrid Ranking & Stats Architecture**: The application uses a hybrid approach for media statistics and rankings.
