@@ -12,9 +12,9 @@ The app currently uses external media APIs for catalog data and a local PostgreS
 - NextAuth authentication with Prisma session/account storage.
 - Discord and Google OAuth providers are configured in code.
 - Supabase has been removed from the runtime data layer.
-- TMDB powers movie and TV search/details/trending/season data.
-- RAWG powers game search/details/discovery.
-- Jikan powers manga search/details/discovery.
+- TMDB powers movie and TV search/details/trending/season data, with normalized responses cached in PostgreSQL.
+- RAWG powers game search/details/discovery, with normalized responses cached in PostgreSQL.
+- Jikan powers manga search/details/discovery, with normalized responses cached in PostgreSQL.
 
 ## Features
 
@@ -26,14 +26,21 @@ The app currently uses external media APIs for catalog data and a local PostgreS
 - **Granular Media Tracking**: Treat TV Seasons and individual TV Episodes as first-class citizens. Rate, review, and rank seasons and episodes independently from their parent shows.
 - **Watchlists**: Maintain "Plan to Watch", "Watching", "Completed", and "Dropped" lists for your media backlog.
 - **Profile Stats & Badges**: Unlock gamified badges based on your reviewing habits and view dynamic statistical breakdowns of your ratings.
+- **Developer Wipe Tool**: In local development, the app drawer includes a guarded `Debug: Wipe DB` action that clears app data while preserving auth users/sessions.
 
 ## Architecture & Optimizations
 
 - **Hybrid Ranking & Stats Architecture**: The application uses a hybrid approach for media statistics and rankings.
   - **Synchronous UI Updates**: When a user rates an item, `refreshMediaStats` runs synchronously to update the media's community average and rating count, followed by Next.js cache invalidation (`revalidatePath`) so the UI reflects the change instantly.
-  - **Asynchronous Global Rankings**: Heavy global rankings and badge calculation tasks are offloaded to a `BackgroundJob` table. A cron trigger periodically pings the `/api/worker` endpoint to process these jobs in the background.
+  - **Asynchronous Profile Work**: Badge calculation and user-stat cache updates are offloaded to a `BackgroundJob` table. Rating changes and watchlist add/update/remove actions enqueue `update_user_stats` jobs so profile statistics stay consistent after list changes.
+  - **Background Processing**: A cron trigger periodically pings the `/api/worker` endpoint to process pending background jobs. The local client provider also polls the worker during development.
 - **Raw PostgreSQL Window Functions**: The global leaderboards (`getRankedMedia`) use raw SQL CTEs and window functions (`RANK() OVER`) to rigidly calculate the true `list_rank` based on the mathematical average of user rank positions, decoupled from the outer page sorting order. This drastically improves sorting performance over large datasets.
 - **Aggressive Profile Caching**: To minimize database load and ensure lightning-fast profile loads, intensive mathematical breakdowns (like score distributions, average ratings, and watchlist ratios) are eagerly calculated by background workers and permanently stored in a dedicated `UserStatsCache` table. This completely eliminates the need for expensive real-time aggregation queries on every profile visit.
+- **Provider API Cache**: External provider responses are normalized into app-facing result objects and stored in `ApiCache`.
+  - Search and trending cache entries live for 24 hours.
+  - Discover cache entries live for 6 hours and are keyed by media type, genre, year, and sort.
+  - Detail cache entries live for 7 days.
+  - Cache entries store normalized media data, not API-key-bearing request URLs.
 
 ## Main Technologies
 
@@ -52,7 +59,11 @@ The app currently uses external media APIs for catalog data and a local PostgreS
 - `src/components` - UI components and interactive client controls.
 - `src/lib/auth.ts` - Shared NextAuth configuration.
 - `src/lib/prisma.ts` - Prisma client setup with the PostgreSQL adapter.
+- `src/lib/api-cache.ts` - Shared PostgreSQL cache helper for external provider results.
+- `src/lib/db-wipe.ts` - Shared local app-data wipe helper used by the CLI script and debug API route.
 - `src/lib/media-db.ts` - Database helpers for ratings, stats, badges, rankings, and profile data.
+- `src/app/api/debug/wipe-db/route.ts` - Development-only debug endpoint for clearing app data.
+- `scripts/nuke-db.ts` - CLI database wipe script that preserves auth users/sessions.
 - `prisma/schema.prisma` - Database schema.
 - `docker-compose.yml` - Local PostgreSQL service.
 
@@ -143,12 +154,16 @@ http://localhost:3000
 npm run dev
 npm run build
 npm run lint
+npm run db:wipe
 npx prisma generate
 npx prisma db push
 npx prisma studio
 docker compose up -d db
+docker compose up -d db cron
 docker compose down
 ```
+
+`npm run db:wipe` clears app data tables, caches, jobs, badges, and profile badge showcases while preserving auth users, accounts, and sessions.
 
 ## Validation Status
 
@@ -167,3 +182,4 @@ Lint currently passes with warnings about raw `<img>` usage. Those warnings are 
 - Rotate any OAuth client secrets that have been shared outside a secure secret manager.
 - The Docker database uses a named volume, so data persists across container restarts.
 - `docker compose down -v` will remove the local database volume and delete local data.
+- The app drawer debug wipe button is disabled in production through `/api/debug/wipe-db`.
