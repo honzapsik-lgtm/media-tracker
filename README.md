@@ -11,6 +11,7 @@ The app currently uses external media APIs for catalog data and a local PostgreS
 - Docker Compose local database using `postgres:15-alpine`.
 - NextAuth authentication with Prisma session/account storage.
 - Discord and Google OAuth providers are configured in code.
+- Lightweight role-based authorization uses `users.role`, with all users defaulting to `user`.
 - Supabase has been removed from the runtime data layer.
 - TMDB powers movie and TV search/details/trending/season data, with normalized responses cached in PostgreSQL.
 - RAWG powers game search/details/discovery, with normalized responses cached in PostgreSQL.
@@ -27,6 +28,7 @@ The app currently uses external media APIs for catalog data and a local PostgreS
 - **Watchlists**: Maintain "Plan to Watch", "Watching", "Completed", and "Dropped" lists for your media backlog.
 - **Profile Stats & Badges**: Unlock gamified badges based on your reviewing habits and view dynamic statistical breakdowns of your ratings.
 - **Developer Wipe Tool**: In local development, the app drawer includes a guarded `Debug: Wipe DB` action that clears app data while preserving auth users/sessions.
+- **Admin Placeholder**: Admin-only pages under `/admin` and APIs under `/api/admin/*` are protected by a lightweight role check.
 
 ## Architecture & Optimizations
 
@@ -58,12 +60,15 @@ The app currently uses external media APIs for catalog data and a local PostgreS
 - `src/app` - App Router pages and API routes.
 - `src/components` - UI components and interactive client controls.
 - `src/lib/auth.ts` - Shared NextAuth configuration.
+- `src/lib/admin-auth.ts` - Server-side admin authorization helper.
 - `src/lib/prisma.ts` - Prisma client setup with the PostgreSQL adapter.
 - `src/lib/api-cache.ts` - Shared PostgreSQL cache helper for external provider results.
 - `src/lib/db-wipe.ts` - Shared local app-data wipe helper used by the CLI script and debug API route.
 - `src/lib/media-db.ts` - Database helpers for ratings, stats, badges, rankings, and profile data.
+- `src/app/api/admin/health/route.ts` - Admin-only health check endpoint.
 - `src/app/api/debug/wipe-db/route.ts` - Development-only debug endpoint for clearing app data.
 - `scripts/nuke-db.ts` - CLI database wipe script that preserves auth users/sessions.
+- `scripts/make-admin.ts` and `scripts/make-user.ts` - Local role management scripts.
 - `prisma/schema.prisma` - Database schema.
 - `docker-compose.yml` - Local PostgreSQL service.
 
@@ -148,6 +153,29 @@ Open:
 http://localhost:3000
 ```
 
+## Lightweight Roles
+
+Roles are stored on the existing `users` table:
+
+- `user` - default role for every account.
+- `admin` - can access future internal diagnostics routes.
+
+Admin-only pages live under `/admin`. Admin-only APIs live under `/api/admin/*`.
+
+Promote a local user:
+
+```bash
+npm run make-admin -- user@example.com
+```
+
+Demote a local user:
+
+```bash
+npm run make-user -- user@example.com
+```
+
+Role changes are intentionally script-only. There is no public UI for role editing and no automatic first-user promotion.
+
 ## Useful Commands
 
 ```bash
@@ -155,6 +183,8 @@ npm run dev
 npm run build
 npm run lint
 npm run db:wipe
+npm run make-admin -- user@example.com
+npm run make-user -- user@example.com
 npx prisma generate
 npx prisma db push
 npx prisma studio

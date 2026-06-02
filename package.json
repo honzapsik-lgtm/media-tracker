@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "db:wipe": "npx tsx scripts/nuke-db.ts"
+    "db:wipe": "npx tsx scripts/nuke-db.ts",
+    "make-admin": "npx tsx scripts/make-admin.ts",
+    "make-user": "npx tsx scripts/make-user.ts"
   },
   "dependencies": {
     "@next-auth/prisma-adapter": "^1.0.7",

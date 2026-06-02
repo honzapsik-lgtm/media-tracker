@@ -86,6 +86,7 @@ model User {
   stateRegion   String?
   country       String?
   showcaseBadges String[] @default([])
+  role          String    @default("user")
   
   // Relations to the new NextAuth tables and your existing tables
   accounts      Account[]
