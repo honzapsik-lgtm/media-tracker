@@ -2,6 +2,8 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+import { readApiCache, writeApiCache } from "@/lib/api-cache";
+
 export interface DiscoverMediaItem {
   id: string;
   title: string;
@@ -10,6 +12,8 @@ export interface DiscoverMediaItem {
   globalScore: number;
   releaseDate?: string | null;
 }
+
+const DISCOVER_CACHE_TTL_SECONDS = 6 * 60 * 60;
 
 const isValidYear = (year: string) => /^\d{4}$/.test(year.trim());
 
@@ -82,6 +86,16 @@ export async function discoverMedia(
 ): Promise<DiscoverMediaItem[]> {
   const normalizedGenre = normalizeGenreKey(genre);
   const yearOk = isValidYear(year) ? year.trim() : null;
+  const cacheId = [
+    "discover",
+    type.trim().toLowerCase() || "all",
+    normalizedGenre || "all",
+    yearOk || "all",
+    sort.trim().toLowerCase() || "default",
+  ].join("-");
+
+  const cached = await readApiCache<DiscoverMediaItem[]>(cacheId);
+  if (cached) return cached;
 
   const safeGlobalScore = (score: unknown): number => {
     if (typeof score !== "number" || Number.isNaN(score)) return 0;
@@ -134,7 +148,7 @@ export async function discoverMedia(
       const results: any[] = Array.isArray(data?.results) ? data.results : [];
       const discoverTypeLabel = type; // "movie" | "show"
 
-      return resultsToDiscoverItems(
+      const discoverItems = resultsToDiscoverItems(
         results
           .map((item: any) => {
             if (typeof item?.id !== "number") return null;
@@ -162,6 +176,10 @@ export async function discoverMedia(
           })
           .filter((x: DiscoverMediaItem | null): x is DiscoverMediaItem => x !== null)
       );
+
+      await writeApiCache(cacheId, "tmdb", discoverItems, DISCOVER_CACHE_TTL_SECONDS);
+
+      return discoverItems;
     }
 
     if (type === "game") {
@@ -187,7 +205,7 @@ export async function discoverMedia(
       const data: any = await res.json();
       const results: any[] = Array.isArray(data?.results) ? data.results : [];
 
-      return resultsToDiscoverItems(
+      const discoverItems = resultsToDiscoverItems(
         results
           .map((game: any) => {
             if (typeof game?.id !== "number") return null;
@@ -209,6 +227,10 @@ export async function discoverMedia(
           })
           .filter((x: DiscoverMediaItem | null): x is DiscoverMediaItem => x !== null)
       );
+
+      await writeApiCache(cacheId, "rawg", discoverItems, DISCOVER_CACHE_TTL_SECONDS);
+
+      return discoverItems;
     }
 
     if (type === "manga") {
@@ -233,7 +255,7 @@ export async function discoverMedia(
       const data: any = await res.json();
       const results: any[] = Array.isArray(data?.data) ? data.data : [];
 
-      return resultsToDiscoverItems(
+      const discoverItems = resultsToDiscoverItems(
         results
           .map((manga: any) => {
             if (typeof manga?.mal_id !== "number") return null;
@@ -261,6 +283,10 @@ export async function discoverMedia(
           })
           .filter((x: DiscoverMediaItem | null): x is DiscoverMediaItem => x !== null)
       );
+
+      await writeApiCache(cacheId, "jikan", discoverItems, DISCOVER_CACHE_TTL_SECONDS);
+
+      return discoverItems;
     }
 
     return [];

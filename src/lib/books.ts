@@ -1,11 +1,20 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { MediaItem } from '../types';
+import { readApiCache, writeApiCache } from '@/lib/api-cache';
 import { prisma } from '@/lib/prisma';
+const SEARCH_CACHE_TTL_SECONDS = 24 * 60 * 60;
 
 // 1. Lightning Fast Search Fetcher
 export async function searchBooks(query: string): Promise<MediaItem[]> {
   try {
-    const encodedQuery = encodeURIComponent(query);
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return [];
+
+    const cacheId = `jikan-search-${encodeURIComponent(normalizedQuery)}`;
+    const cached = await readApiCache<MediaItem[]>(cacheId);
+    if (cached) return cached;
+
+    const encodedQuery = encodeURIComponent(normalizedQuery);
     
     const res = await fetch(
       `https://api.jikan.moe/v4/manga?q=${encodedQuery}&limit=10&order_by=popularity&sort=asc`,
@@ -17,7 +26,7 @@ export async function searchBooks(query: string): Promise<MediaItem[]> {
     const { data } = await res.json();
     if (!data) return [];
 
-    return data.map((item: any) => ({
+    const results = data.map((item: any) => ({
       id: `manga-${item.mal_id}`,
       // We prioritize the English localized title if it exists, otherwise fallback to Romaji
       title: item.title_english || item.title,
@@ -25,6 +34,10 @@ export async function searchBooks(query: string): Promise<MediaItem[]> {
       image: item.images?.webp?.image_url || item.images?.jpg?.image_url || null,
       releaseDate: item.published?.prop?.from?.year?.toString() || 'N/A'
     }));
+
+    await writeApiCache(cacheId, 'jikan', results, SEARCH_CACHE_TTL_SECONDS);
+
+    return results;
   } catch (error) {
     console.error("Manga API Fetch failed:", error);
     return [];

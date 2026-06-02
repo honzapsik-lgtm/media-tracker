@@ -1,12 +1,21 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { MediaItem } from '../types';
+import { readApiCache, writeApiCache } from '@/lib/api-cache';
 import { prisma } from '@/lib/prisma';
+const SEARCH_CACHE_TTL_SECONDS = 24 * 60 * 60;
 
 export async function searchGames(query: string): Promise<MediaItem[]> {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return [];
+
+  const cacheId = `rawg-search-${encodeURIComponent(normalizedQuery)}`;
+  const cached = await readApiCache<MediaItem[]>(cacheId);
+  if (cached) return cached;
+
   const RAWG_API_KEY = process.env.RAWG_API_KEY;
   if (!RAWG_API_KEY) return []; // Silently fail if no key yet
 
-  const encodedQuery = encodeURIComponent(query);
+  const encodedQuery = encodeURIComponent(normalizedQuery);
   const res = await fetch(
     `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&search=${encodedQuery}&page_size=10`,
     { next: { revalidate: 3600 } }
@@ -15,13 +24,17 @@ export async function searchGames(query: string): Promise<MediaItem[]> {
   if (!res.ok) return [];
   const data = await res.json();
 
-  return data.results.map((game: any) => ({
+  const results = data.results.map((game: any) => ({
     id: `rawg-game-${game.id}`,
     title: game.name,
     type: 'game',
     image: game.background_image || null,
     releaseDate: game.released || 'N/A'
   }));
+
+  await writeApiCache(cacheId, 'rawg', results, SEARCH_CACHE_TTL_SECONDS);
+
+  return results;
 }
 
 export async function getGameDetails(id: string) {

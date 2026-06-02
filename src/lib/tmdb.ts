@@ -1,8 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { MediaItem } from '@/types';
+import { readApiCache, writeApiCache } from '@/lib/api-cache';
 import { prisma } from '@/lib/prisma';
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
 const BASE_URL = 'https://api.themoviedb.org/3';
+const SEARCH_CACHE_TTL_SECONDS = 24 * 60 * 60;
 
 // We strongly type the response so Cursor gives us perfect autocomplete later
 export interface Movie {
@@ -14,6 +16,10 @@ export interface Movie {
 }
 
 export async function getTrendingMovies(): Promise<MediaItem[]> {
+  const cacheId = 'tmdb-trending-movies-day';
+  const cached = await readApiCache<MediaItem[]>(cacheId);
+  if (cached) return cached;
+
   if (!TMDB_API_KEY) return [];
 
   const res = await fetch(
@@ -25,19 +31,30 @@ export async function getTrendingMovies(): Promise<MediaItem[]> {
   const data = await res.json();
 
   // NORMALIZE the trending data to match the MediaItem interface
-  return data.results.map((movie: any) => ({
+  const results = data.results.map((movie: any) => ({
     id: `tmdb-movie-${movie.id}`, // THE FIX: This now matches the new routing logic
     title: movie.title,
     type: 'movie',
     image: movie.poster_path ? `https://image.tmdb.org/t/p/w500${movie.poster_path}` : null,
     releaseDate: movie.release_date || 'N/A'
   }));
+
+  await writeApiCache(cacheId, 'tmdb', results, SEARCH_CACHE_TTL_SECONDS);
+
+  return results;
 }
 
 export async function searchTMDb(query: string): Promise<MediaItem[]> {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return [];
+
+  const cacheId = `tmdb-search-${encodeURIComponent(normalizedQuery)}`;
+  const cached = await readApiCache<MediaItem[]>(cacheId);
+  if (cached) return cached;
+
   if (!TMDB_API_KEY) throw new Error("TMDb API Key is missing");
 
-  const encodedQuery = encodeURIComponent(query);
+  const encodedQuery = encodeURIComponent(normalizedQuery);
   const res = await fetch(
     `${BASE_URL}/search/multi?api_key=${TMDB_API_KEY}&query=${encodedQuery}&language=en-US&page=1`,
     { next: { revalidate: 3600 } }
@@ -49,7 +66,7 @@ export async function searchTMDb(query: string): Promise<MediaItem[]> {
   // Filter out 'person' (actors) so we only get movies and tv shows
   const mediaOnly = data.results.filter((item: any) => item.media_type === 'movie' || item.media_type === 'tv');
 
-  return mediaOnly.map((item: any) => ({
+  const results = mediaOnly.map((item: any) => ({
     // CRUCIAL: We inject the media_type into the ID so the details page knows which endpoint to hit
     id: `tmdb-${item.media_type}-${item.id}`, 
     title: item.title || item.name, // TMDb uses 'title' for movies, 'name' for TV
@@ -57,6 +74,10 @@ export async function searchTMDb(query: string): Promise<MediaItem[]> {
     image: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : null,
     releaseDate: item.release_date || item.first_air_date || 'N/A'
   }));
+
+  await writeApiCache(cacheId, 'tmdb', results, SEARCH_CACHE_TTL_SECONDS);
+
+  return results;
 }
 
 export async function getTMDbDetails(id: string, type: 'movie' | 'tv') {
