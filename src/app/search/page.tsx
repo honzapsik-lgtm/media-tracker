@@ -4,6 +4,7 @@ import { searchGames } from "@/lib/games";
 import SearchBar from "@/components/SearchBar";
 import SearchResultsTabs from "@/components/SearchResultsTabs"; // Import the new component
 import Link from "next/link";
+import { Suspense } from "react";
 
 export default async function SearchPage({
   searchParams,
@@ -32,7 +33,9 @@ export default async function SearchPage({
           </Link>
         </div>
 
-        <SearchBar />
+        <Suspense>
+          <SearchBar />
+        </Suspense>
 
         <h1 className="text-2xl font-bold mb-6">
           Search Results for: <span className="text-blue-400">&ldquo;{query}&rdquo;</span>

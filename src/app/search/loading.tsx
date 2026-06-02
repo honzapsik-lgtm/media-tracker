@@ -1,11 +1,14 @@
 import SearchBar from "@/components/SearchBar";
+import { Suspense } from "react";
 
 export default function SearchLoading() {
   return (
     <main className="min-h-screen bg-gray-950 text-white p-8">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8 text-blue-400 font-semibold">← Back Home</div>
-        <SearchBar />
+        <Suspense>
+          <SearchBar />
+        </Suspense>
         
         {/* Cool pulsing skeleton grid */}
         <div className="mt-12">

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { inferMediaType } from "@/lib/media-db";
 import { prisma } from "@/lib/prisma";
 
 type WatchlistBody = {
@@ -10,6 +11,18 @@ type WatchlistBody = {
   type?: string;
   status?: string;
 };
+
+async function queueUserStatsUpdate(userId: string, mediaId: string, mediaType?: string | null) {
+  await prisma.backgroundJob.create({
+    data: {
+      type: "update_user_stats",
+      payload: {
+        userId,
+        mediaType: mediaType || inferMediaType(mediaId),
+      },
+    },
+  });
+}
 
 export async function GET(request: Request) {
   const session = await getServerSession(authOptions);
@@ -45,12 +58,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "mediaId is required" }, { status: 400 });
   }
 
+  const mediaType = body.type || inferMediaType(body.mediaId);
   const item = await prisma.userWatchlist.upsert({
     where: { user_id_media_id: { user_id: session.user.id, media_id: body.mediaId } },
     update: {
       media_title: body.title,
       media_image: body.image ?? null,
-      media_type: body.type,
+      media_type: mediaType,
       status: body.status ?? "plan_to_watch",
     },
     create: {
@@ -58,10 +72,12 @@ export async function POST(request: Request) {
       media_id: body.mediaId,
       media_title: body.title,
       media_image: body.image ?? null,
-      media_type: body.type,
+      media_type: mediaType,
       status: body.status ?? "plan_to_watch",
     },
   });
+
+  await queueUserStatsUpdate(session.user.id, body.mediaId, mediaType);
 
   return NextResponse.json(item);
 }
@@ -82,6 +98,8 @@ export async function PATCH(request: Request) {
     data: { status: body.status },
   });
 
+  await queueUserStatsUpdate(session.user.id, item.media_id, item.media_type);
+
   return NextResponse.json(item);
 }
 
@@ -97,9 +115,18 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "mediaId is required" }, { status: 400 });
   }
 
-  await prisma.userWatchlist.deleteMany({
+  const existingItem = await prisma.userWatchlist.findUnique({
+    where: { user_id_media_id: { user_id: session.user.id, media_id: mediaId } },
+    select: { media_type: true },
+  });
+
+  const result = await prisma.userWatchlist.deleteMany({
     where: { user_id: session.user.id, media_id: mediaId },
   });
+
+  if (result.count > 0) {
+    await queueUserStatsUpdate(session.user.id, mediaId, existingItem?.media_type);
+  }
 
   return NextResponse.json({ ok: true });
 }

@@ -1,19 +1,11 @@
 import "dotenv/config";
+import { wipeAppData } from "../src/lib/db-wipe";
 import { prisma } from "../src/lib/prisma";
 
 async function main() {
   console.log("Nuking database (preserving auth tables)...");
 
-  await prisma.$transaction([
-    prisma.userRating.deleteMany(),
-    prisma.userWatchlist.deleteMany(),
-    prisma.mediaStats.deleteMany(),
-    prisma.userRankedList.deleteMany(),
-    prisma.backgroundJob.deleteMany(),
-    prisma.userStatsCache.deleteMany(),
-    prisma.apiCache.deleteMany(), // Also wipe api cache just in case
-    prisma.userBadge.deleteMany(), // And badges
-  ]);
+  await wipeAppData();
 
   console.log("Database successfully nuked!");
 }

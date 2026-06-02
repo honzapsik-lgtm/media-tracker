@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useSession, signOut } from "next-auth/react";
+import { useRouter } from "next/navigation";
 
 type ListCategory = "watch" | "play" | "read";
 interface WatchlistItem {
@@ -14,6 +15,7 @@ interface WatchlistItem {
 }
 
 export default function AppDrawer() {
+  const router = useRouter();
   const { data: session } = useSession();
   const [isOpen, setIsOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -24,6 +26,7 @@ export default function AppDrawer() {
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>([]);
   const [activeTab, setActiveTab] = useState("plan_to_watch");
   const [isLoading, setIsLoading] = useState(false);
+  const [isWipingDb, setIsWipingDb] = useState(false);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -63,6 +66,29 @@ export default function AppDrawer() {
           item.media_id === mediaId ? { ...item, status: newStatus } : item
         )
       );
+    }
+  };
+
+  const handleWipeDb = async () => {
+    if (!window.confirm("Wipe all local app data? Auth users will stay, but ratings, reviews, lists, stats, caches, jobs, badges, and badge showcases will be cleared.")) {
+      return;
+    }
+
+    setIsWipingDb(true);
+    try {
+      const res = await fetch("/api/debug/wipe-db", { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Could not wipe database.");
+      }
+
+      setWatchlist([]);
+      router.refresh();
+      alert("Database wiped.");
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Could not wipe database.");
+    } finally {
+      setIsWipingDb(false);
     }
   };
 
@@ -148,7 +174,17 @@ export default function AppDrawer() {
 
             {/* LOGOUT BUTTON PINNED TO BOTTOM */}
             {session && (
-              <div className="p-4 border-t border-gray-800 bg-gray-900/30">
+              <div className="p-4 border-t border-gray-800 bg-gray-900/30 space-y-3">
+                {process.env.NODE_ENV !== "production" && (
+                  <button
+                    onClick={handleWipeDb}
+                    disabled={isWipingDb}
+                    className="w-full flex items-center justify-center gap-2 p-3 text-sm font-bold text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 border border-amber-500/20 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7h6m2 0H7m3 0V5a2 2 0 012-2h0a2 2 0 012 2v2" /></svg>
+                    {isWipingDb ? "Wiping..." : "Debug: Wipe DB"}
+                  </button>
+                )}
                 <button 
                   onClick={() => signOut()} 
                   className="w-full flex items-center justify-center gap-2 p-3 text-sm font-bold text-red-500 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 rounded-xl transition-all"

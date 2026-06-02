@@ -3,7 +3,17 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 
-const CRITERIA_CONFIG: Record<string, { key: string; label: string }[]> = {
+type RatingMediaType = "game" | "movie" | "show" | "season" | "episode" | "manga";
+
+const SHOW_CRITERIA = [
+  { key: "narrative", label: "Narrative" },
+  { key: "cinematography", label: "Cinematography" },
+  { key: "sound", label: "Sound and score" },
+  { key: "acting", label: "Acting performances" },
+  { key: "ending", label: "Ending" },
+];
+
+const CRITERIA_CONFIG: Record<RatingMediaType, { key: string; label: string }[]> = {
   game: [
     { key: "narrative", label: "Narrative" }, { key: "gameplay", label: "Gameplay" },
     { key: "visuals", label: "Visuals and graphics" }, { key: "performance", label: "Performance" },
@@ -13,11 +23,9 @@ const CRITERIA_CONFIG: Record<string, { key: string; label: string }[]> = {
     { key: "narrative", label: "Narrative" }, { key: "cinematography", label: "Cinematography" },
     { key: "sound", label: "Sound and score" }, { key: "acting", label: "Acting performances" },
   ],
-  show: [
-    { key: "narrative", label: "Narrative" }, { key: "cinematography", label: "Cinematography" },
-    { key: "sound", label: "Sound and score" }, { key: "acting", label: "Acting performances" },
-    { key: "ending", label: "Ending" },
-  ],
+  show: SHOW_CRITERIA,
+  season: SHOW_CRITERIA,
+  episode: SHOW_CRITERIA,
   manga: [
     { key: "narrative", label: "Narrative" }, { key: "artStyle", label: "Art style" },
     { key: "characters", label: "Characters" }, { key: "development", label: "Development" },
@@ -34,7 +42,7 @@ export const getScoreColor = (score: number | null | undefined) => {
 };
 
 interface RatingSliderProps {
-  mediaId: string; mediaType: "game" | "movie" | "show" | "manga";
+  mediaId: string; mediaType: RatingMediaType;
   mediaTitle: string; mediaImage: string | null;
   initialRating?: number; initialCriteria?: Record<string, number>;
 }

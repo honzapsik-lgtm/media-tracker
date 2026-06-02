@@ -13,7 +13,12 @@ export interface ProfileMediaItem {
 
 export function inferMediaType(mediaId: string) {
   const parts = mediaId.split("-");
-  if (parts[0] === "tmdb") return parts[1] === "movie" ? "movie" : "show";
+  if (parts[0] === "tmdb" && parts[1] === "movie") return "movie";
+  if (parts[0] === "tmdb" && parts[1] === "tv") {
+    if (parts.some((part) => part.startsWith("e"))) return "episode";
+    if (parts.some((part) => part.startsWith("s"))) return "season";
+    return "show";
+  }
   if (parts[0] === "rawg") return "game";
   if (parts[0] === "manga") return "manga";
   return "unknown";
@@ -193,6 +198,17 @@ export async function getRankedMedia(
   page: number,
   limit: number
 ) {
+  type RankedMediaRow = {
+    media_id: string;
+    media_type: string;
+    community_average: Prisma.Decimal | number | null;
+    total_ratings: number | bigint | null;
+    title: string | null;
+    image: string | null;
+    average_rank: Prisma.Decimal | number | null;
+    list_rank: number | bigint | null;
+  };
+
   const skip = (page - 1) * limit;
 
   // 1. Fetch total count for pagination
@@ -267,7 +283,7 @@ export async function getRankedMedia(
         LIMIT ${limit}
       `;
 
-  const results = await prisma.$queryRaw<any[]>(query);
+  const results = await prisma.$queryRaw<RankedMediaRow[]>(query);
 
   const formattedResults = results.map((row) => ({
     media_id: row.media_id,

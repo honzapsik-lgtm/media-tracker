@@ -1,6 +1,7 @@
 import { getTrendingMovies } from '@/lib/tmdb';
 import SearchBar from '@/components/SearchBar';
 import Link from 'next/link';
+import { Suspense } from 'react';
 
 export default async function Home() {
   const movies = await getTrendingMovies();
@@ -12,7 +13,9 @@ export default async function Home() {
           <h1 className="text-5xl font-extrabold leading-tight pb-2 mb-4 text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500">
             Media Aggregator
           </h1>
-          <SearchBar />
+          <Suspense>
+            <SearchBar />
+          </Suspense>
         </div>
 
         <h2 className="text-2xl font-bold mb-6">Trending Movies</h2>
