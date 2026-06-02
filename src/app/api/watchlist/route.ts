@@ -13,7 +13,7 @@ type WatchlistBody = {
 
 export async function GET(request: Request) {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.id) return NextResponse.json([]);
+  if (!session?.user?.id) return NextResponse.json({ results: [], count: 0 });
 
   const { searchParams } = new URL(request.url);
   const mediaId = searchParams.get("mediaId");
@@ -26,12 +26,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ status: item?.status ?? null });
   }
 
-  const items = await prisma.userWatchlist.findMany({
-    where: { user_id: session.user.id },
-    orderBy: { added_at: "desc" },
-  });
+  const page = parseInt(searchParams.get("page") || "1", 10);
+  const limit = parseInt(searchParams.get("limit") || "50", 10);
 
-  return NextResponse.json(items);
+  const { getUserWatchlist } = await import("@/lib/media-db");
+  const data = await getUserWatchlist(session.user.id, Math.max(1, page), Math.max(1, limit));
+  return NextResponse.json(data);
 }
 
 export async function POST(request: Request) {

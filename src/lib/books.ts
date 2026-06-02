@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { MediaItem } from '../types';
+import { prisma } from '@/lib/prisma';
 
 // 1. Lightning Fast Search Fetcher
 export async function searchBooks(query: string): Promise<MediaItem[]> {
@@ -8,7 +9,7 @@ export async function searchBooks(query: string): Promise<MediaItem[]> {
     
     const res = await fetch(
       `https://api.jikan.moe/v4/manga?q=${encodedQuery}&limit=10&order_by=popularity&sort=asc`,
-      { cache: 'no-store' }
+      { next: { revalidate: 3600 } }
     );
 
     if (!res.ok) return [];
@@ -33,6 +34,12 @@ export async function searchBooks(query: string): Promise<MediaItem[]> {
 // 2. Details Fetcher
 export async function getBookDetails(id: string) {
   try {
+    const cacheId = `manga-${id}`;
+    const cached = await prisma.apiCache.findUnique({ where: { id: cacheId } });
+    if (cached && cached.expires_at > new Date()) {
+      return cached.data as any;
+    }
+
     const res = await fetch(
       `https://api.jikan.moe/v4/manga/${id}`,
       { next: { revalidate: 3600 } }
@@ -50,8 +57,8 @@ export async function getBookDetails(id: string) {
     // Safety Net 2: Ensure the data object actually exists before mapping
     if (!data) return null;
 
-    return {
-      id: `manga-${id}`,
+    const result = {
+      id: cacheId,
       title: data.title_english || data.title,
       type: 'manga',
       image: data.images?.webp?.large_image_url || data.images?.jpg?.large_image_url || null,
@@ -71,6 +78,16 @@ export async function getBookDetails(id: string) {
       music: null,
       creator: null
     };
+
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+    await prisma.apiCache.upsert({
+      where: { id: cacheId },
+      update: { data: result as any, expires_at: expiresAt },
+      create: { id: cacheId, provider: 'jikan', data: result as any, expires_at: expiresAt }
+    });
+
+    return result;
   } catch (error) {
     // Safety Net 3: Catch any random network parsing errors
     console.error("Failed to fetch manga details:", error);

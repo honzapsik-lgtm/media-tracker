@@ -1,3 +1,4 @@
+import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { Prisma } from "@prisma/client";
@@ -88,10 +89,21 @@ export async function POST(request: Request) {
     },
   });
 
-  await Promise.all([
-    refreshMediaStats(body.mediaId, mediaType),
-    awardBadges(session.user.id),
-  ]);
+  await refreshMediaStats(body.mediaId, mediaType);
+  revalidatePath(`/media/${body.mediaId}`);
+
+  await prisma.backgroundJob.createMany({
+    data: [
+      {
+        type: "award_badges",
+        payload: { userId: session.user.id },
+      },
+      {
+        type: "update_user_stats",
+        payload: { userId: session.user.id, mediaType },
+      }
+    ],
+  });
 
   return NextResponse.json({ ok: true });
 }
@@ -111,7 +123,19 @@ export async function DELETE(request: Request) {
   await prisma.userRating.deleteMany({
     where: { user_id: session.user.id, media_id: mediaId },
   });
-  await refreshMediaStats(mediaId);
+  const mediaType = inferMediaType(mediaId);
+
+  await refreshMediaStats(mediaId, mediaType);
+  revalidatePath(`/media/${mediaId}`);
+
+  await prisma.backgroundJob.createMany({
+    data: [
+      {
+        type: "update_user_stats",
+        payload: { userId: session.user.id, mediaType },
+      }
+    ],
+  });
 
   return NextResponse.json({ ok: true });
 }

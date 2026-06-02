@@ -152,22 +152,29 @@ export function calculateCriteriaAverages(rows: { criteria_scores: Prisma.JsonVa
 }
 
 export async function awardBadges(userId: string) {
-  const ratings = await prisma.userRating.findMany({
-    where: { user_id: userId },
-    select: { score: true, media_id: true },
-  });
+  const [
+    totalRatingsCount,
+    gameRatingsCount,
+    mangaRatingsCount,
+    hasVoidStare,
+    hasMasterpiece
+  ] = await Promise.all([
+    prisma.userRating.count({ where: { user_id: userId } }),
+    prisma.userRating.count({ where: { user_id: userId, media_id: { startsWith: "rawg-" } } }),
+    prisma.userRating.count({ where: { user_id: userId, media_id: { startsWith: "manga-" } } }),
+    prisma.userRating.findFirst({ where: { user_id: userId, score: { lte: 20 } }, select: { id: true } }),
+    prisma.userRating.findFirst({ where: { user_id: userId, score: 100 }, select: { id: true } })
+  ]);
 
   const badgeIds = new Set<string>();
-  const gameCount = ratings.filter((rating) => inferMediaType(rating.media_id) === "game").length;
-  const mangaCount = ratings.filter((rating) => inferMediaType(rating.media_id) === "manga").length;
 
-  if (ratings.length >= 10) badgeIds.add("ratings_10");
-  if (ratings.length >= 50) badgeIds.add("ratings_50");
-  if (ratings.length >= 100) badgeIds.add("ratings_100");
-  if (gameCount >= 10) badgeIds.add("games_10");
-  if (mangaCount >= 10) badgeIds.add("manga_10");
-  if (ratings.some((rating) => rating.score <= 20)) badgeIds.add("void_stare");
-  if (ratings.some((rating) => rating.score === 100)) badgeIds.add("masterpiece");
+  if (totalRatingsCount >= 10) badgeIds.add("ratings_10");
+  if (totalRatingsCount >= 50) badgeIds.add("ratings_50");
+  if (totalRatingsCount >= 100) badgeIds.add("ratings_100");
+  if (gameRatingsCount >= 10) badgeIds.add("games_10");
+  if (mangaRatingsCount >= 10) badgeIds.add("manga_10");
+  if (hasVoidStare) badgeIds.add("void_stare");
+  if (hasMasterpiece) badgeIds.add("masterpiece");
 
   await Promise.all(
     [...badgeIds].map((badgeId) =>
@@ -187,74 +194,225 @@ export async function getRankedMedia(
   limit: number
 ) {
   const skip = (page - 1) * limit;
-  const where = { media_type: mediaType };
 
-  const [stats, totalCount] = await Promise.all([
-    prisma.mediaStats.findMany({
-      where,
-      orderBy:
-        sort === "popular"
-          ? [{ total_ratings: "desc" }, { community_average: "desc" }]
-          : [{ community_average: "desc" }, { total_ratings: "desc" }],
+  // 1. Fetch total count for pagination
+  const totalCount = sort === "list_rank"
+    ? await prisma.$queryRaw<{count: number | bigint}[]>`
+        SELECT COUNT(DISTINCT s.id) as count
+        FROM media_stats s
+        INNER JOIN user_ratings r ON s.id = r.media_id
+        WHERE s.media_type = ${mediaType} AND r.rank_position IS NOT NULL
+      `.then(res => Number(res[0].count))
+    : await prisma.mediaStats.count({
+        where: { media_type: mediaType },
+      });
+
+  const orderByClause = sort === "community" 
+    ? Prisma.sql`ORDER BY community_average DESC NULLS LAST, total_ratings DESC NULLS LAST` 
+    : sort === "popular"
+    ? Prisma.sql`ORDER BY total_ratings DESC NULLS LAST, community_average DESC NULLS LAST`
+    : Prisma.sql`ORDER BY list_rank ASC`;
+
+  // 2. Perform global sort via raw SQL CTE
+  const query = sort === "list_rank" 
+    ? Prisma.sql`
+        WITH global_rankings AS (
+          SELECT 
+            s.id AS media_id,
+            s.media_type,
+            s.community_average,
+            s.total_ratings,
+            MAX(r.media_title) AS title,
+            MAX(r.media_image) AS image,
+            AVG(r.rank_position) AS average_rank,
+            RANK() OVER (
+              ORDER BY 
+                AVG(r.rank_position) ASC NULLS LAST, 
+                s.community_average DESC NULLS LAST
+            ) as list_rank
+          FROM media_stats s
+          LEFT JOIN user_ratings r ON s.id = r.media_id
+          WHERE s.media_type = ${mediaType}
+          GROUP BY s.id, s.media_type, s.community_average, s.total_ratings
+          HAVING AVG(r.rank_position) IS NOT NULL
+        )
+        SELECT * FROM global_rankings
+        ${orderByClause}
+        OFFSET ${skip}
+        LIMIT ${limit}
+      `
+    : Prisma.sql`
+        WITH global_rankings AS (
+          SELECT 
+            s.id AS media_id,
+            s.media_type,
+            s.community_average,
+            s.total_ratings,
+            MAX(r.media_title) AS title,
+            MAX(r.media_image) AS image,
+            AVG(r.rank_position) AS average_rank,
+            RANK() OVER (
+              ORDER BY 
+                AVG(r.rank_position) ASC NULLS LAST, 
+                s.community_average DESC NULLS LAST
+            ) as list_rank
+          FROM media_stats s
+          LEFT JOIN user_ratings r ON s.id = r.media_id
+          WHERE s.media_type = ${mediaType}
+          GROUP BY s.id, s.media_type, s.community_average, s.total_ratings
+        )
+        SELECT * FROM global_rankings
+        ${orderByClause}
+        OFFSET ${skip}
+        LIMIT ${limit}
+      `;
+
+  const results = await prisma.$queryRaw<any[]>(query);
+
+  const formattedResults = results.map((row) => ({
+    media_id: row.media_id,
+    media_type: row.media_type,
+    title: row.title ?? row.media_id,
+    image: row.image ?? null,
+    community_average: row.community_average ? Number(row.community_average) : 0,
+    total_ratings: row.total_ratings ? Number(row.total_ratings) : 0,
+    average_rank: row.average_rank ? Number(row.average_rank) : null,
+    list_rank: row.list_rank ? Number(row.list_rank) : null,
+  }));
+
+  return {
+    results: formattedResults,
+    count: totalCount,
+  };
+}
+
+export async function updateUserStatsCache(userId: string, mediaType: string) {
+  // 1. Fetch user ratings to filter by mediaType
+  const ratings = await prisma.userRating.findMany({
+    where: { user_id: userId },
+  });
+
+  const typeRatings = ratings.filter(r => inferMediaType(r.media_id) === mediaType);
+
+  // 2. Fetch user watchlist for this mediaType
+  const watchlist = await prisma.userWatchlist.findMany({
+    where: { user_id: userId, media_type: mediaType },
+  });
+
+  const total_count = typeRatings.length;
+  let average_score = 0;
+  let highest_score = 0;
+  let lowest_score = 0;
+  const score_distribution: Record<string, number> = {};
+  
+  // Initialize all 1-10 to 0
+  for (let i = 1; i <= 10; i++) {
+    score_distribution[i.toString()] = 0;
+  }
+
+  if (total_count > 0) {
+    const scores = typeRatings.map(r => r.score);
+    average_score = Math.round(scores.reduce((a, b) => a + b, 0) / total_count);
+    highest_score = Math.max(...scores);
+    lowest_score = Math.min(...scores);
+    
+    typeRatings.forEach(r => {
+      // Grouping 1-100 scores into 1-10 buckets
+      const bucket = Math.ceil(r.score / 10) || 1; 
+      const key = bucket.toString();
+      if (score_distribution[key] !== undefined) {
+        score_distribution[key]++;
+      }
+    });
+  }
+
+  const status_counts = {
+    completed: 0,
+    watching: 0,
+    plan_to_watch: 0,
+    dropped: 0
+  };
+
+  watchlist.forEach(item => {
+    const status = item.status || 'plan_to_watch';
+    if (status_counts[status as keyof typeof status_counts] !== undefined) {
+      status_counts[status as keyof typeof status_counts]++;
+    }
+  });
+
+  const stats_json = {
+    total_count,
+    average_score,
+    highest_score,
+    lowest_score,
+    score_distribution,
+    status_counts
+  };
+
+  await prisma.userStatsCache.upsert({
+    where: { user_id_media_type: { user_id: userId, media_type: mediaType } },
+    update: { stats_json: stats_json as Prisma.InputJsonValue },
+    create: {
+      user_id: userId,
+      media_type: mediaType,
+      stats_json: stats_json as Prisma.InputJsonValue,
+    }
+  });
+}
+
+export async function getUserRatings(userId: string, page: number, limit: number) {
+  const skip = (page - 1) * limit;
+  const [results, count] = await Promise.all([
+    prisma.userRating.findMany({
+      where: { user_id: userId },
+      orderBy: { created_at: "desc" },
       skip,
       take: limit,
     }),
-    prisma.mediaStats.count({ where }),
+    prisma.userRating.count({ where: { user_id: userId } }),
   ]);
+  return { results: results.map(formatProfileRating), count };
+}
 
-  const ratings = await prisma.userRating.findMany({
-    where: { media_id: { in: stats.map((item) => item.id) } },
-    orderBy: [{ rank_position: "asc" }, { score: "desc" }],
-    select: {
-      media_id: true,
-      media_title: true,
-      media_image: true,
-      rank_position: true,
-      score: true,
-    },
-  });
+export async function getUserReviews(userId: string, page: number, limit: number) {
+  const skip = (page - 1) * limit;
+  const [results, count] = await Promise.all([
+    prisma.userRating.findMany({
+      where: { user_id: userId, review_text: { not: null } },
+      orderBy: { created_at: "desc" },
+      skip,
+      take: limit,
+    }),
+    prisma.userRating.count({ where: { user_id: userId, review_text: { not: null } } }),
+  ]);
+  return { results: results.map(formatProfileRating), count };
+}
 
-  const byMedia = new Map<string, typeof ratings>();
-  ratings.forEach((rating) => {
-    byMedia.set(rating.media_id, [...(byMedia.get(rating.media_id) ?? []), rating]);
-  });
+export async function getUserWatchlist(userId: string, page: number, limit: number) {
+  const skip = (page - 1) * limit;
+  const [results, count] = await Promise.all([
+    prisma.userWatchlist.findMany({
+      where: { user_id: userId },
+      orderBy: { added_at: "desc" },
+      skip,
+      take: limit,
+    }),
+    prisma.userWatchlist.count({ where: { user_id: userId } }),
+  ]);
+  return { results, count };
+}
 
-  const listScores = stats.map((stat) => {
-    const mediaRatings = byMedia.get(stat.id) ?? [];
-    const rankedRatings = mediaRatings.filter((rating) => rating.rank_position != null);
-    const averageRank =
-      rankedRatings.length > 0
-        ? rankedRatings.reduce((sum, rating) => sum + (rating.rank_position ?? 0), 0) /
-          rankedRatings.length
-        : null;
-    const representative = mediaRatings[0];
-
-    return {
-      media_id: stat.id,
-      media_type: stat.media_type,
-      title: representative?.media_title ?? stat.id,
-      image: representative?.media_image ?? null,
-      community_average: stat.community_average ? Number(stat.community_average) : 0,
-      total_ratings: stat.total_ratings ?? 0,
-      average_rank: averageRank,
-      list_rank: null as number | null,
-    };
-  });
-
-  const sorted =
-    sort === "list_rank"
-      ? listScores
-          .filter((item) => item.average_rank != null)
-          .sort((a, b) => (a.average_rank ?? Number.MAX_SAFE_INTEGER) - (b.average_rank ?? Number.MAX_SAFE_INTEGER))
-      : listScores;
-
-  sorted.forEach((item, index) => {
-    item.list_rank = item.average_rank == null ? null : index + 1;
-  });
-
-  return {
-    results: sorted,
-    count: totalCount,
-  };
+export async function getUserRankedList(userId: string, mediaType: string, page: number, limit: number) {
+  const skip = (page - 1) * limit;
+  const [results, count] = await Promise.all([
+    prisma.userRankedList.findMany({
+      where: { user_id: userId, media_type: mediaType },
+      orderBy: { rank_position: "asc" },
+      skip,
+      take: limit,
+    }),
+    prisma.userRankedList.count({ where: { user_id: userId, media_type: mediaType } }),
+  ]);
+  return { results, count };
 }
 

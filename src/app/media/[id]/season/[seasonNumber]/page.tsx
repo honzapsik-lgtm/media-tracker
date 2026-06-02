@@ -111,7 +111,7 @@ export default async function SeasonPage({
             {/* Passes the required Title and Image down so Profile page doesn't break */}
             <RatingSlider 
               mediaId={seasonMediaId} 
-              mediaType="show" 
+              mediaType="season" 
               mediaTitle={seasonFullTitle}
               mediaImage={seasonPoster}
             />
@@ -166,7 +166,7 @@ export default async function SeasonPage({
                 <p className="text-4xl font-extrabold text-white">
                   {placementRank ? `#${placementRank}` : '-'}
                 </p>
-                <p className="text-xs text-gray-500 mt-1 uppercase">Global Show</p>
+                <p className="text-xs text-gray-500 mt-1 uppercase">Global Season</p>
               </div>
             </div>
 

@@ -1,11 +1,25 @@
 "use client"; // This tells Next.js this component runs in the browser
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 export default function SearchBar() {
-  const [query, setQuery] = useState("");
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialQuery = searchParams.get("q") || "";
+  
+  const [query, setQuery] = useState(initialQuery);
+
+  useEffect(() => {
+    // Client-side debouncing for search input
+    const delayDebounceFn = setTimeout(() => {
+      if (query.trim() && query !== initialQuery) {
+        router.push(`/search?q=${encodeURIComponent(query)}`);
+      }
+    }, 500);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [query, router, initialQuery]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();

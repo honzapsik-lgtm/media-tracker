@@ -12,5 +12,13 @@ services:
     volumes:
       - local_pgdata:/var/lib/postgresql/data
 
+  cron:
+    image: alpine:latest
+    container_name: local_cron
+    restart: always
+    command: /bin/sh -c "apk add --no-cache curl && while true; do curl -X POST http://host.docker.internal:3000/api/worker; sleep 60; done"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
 volumes:
   local_pgdata:

@@ -3,6 +3,7 @@ import RatingSlider from "@/components/RatingSlider";
 import ExpandableText from "@/components/ExpandableText";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { getTMDbDetails } from "@/lib/tmdb";
 import type { Episode } from "@/app/media/[id]/season/[seasonNumber]/page";
 import { getMediaStats } from "@/lib/media-db";
 
@@ -28,6 +29,10 @@ export default async function EpisodePage({
   const episodes: Episode[] = await getSeasonEpisodes(tmdbId, seasonNum);
   const episode = episodes.find((ep) => ep.episode_number === epNum);
   if (!episode) notFound();
+
+  const showDetails = await getTMDbDetails(tmdbId, "tv");
+  const showTitle = showDetails?.title || "Unknown Show";
+  const episodeFullTitle = `${showTitle} - S${seasonNum} E${episode.episode_number} - ${episode.name}`;
 
   const sortedEpisodes = [...episodes].sort(
     (a, b) => a.episode_number - b.episode_number
@@ -73,8 +78,8 @@ export default async function EpisodePage({
             <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 shadow-xl">
               <RatingSlider
                 mediaId={episodeMediaId}
-                mediaType="show"
-                mediaTitle={episode.name}
+                mediaType="episode"
+                mediaTitle={episodeFullTitle}
                 mediaImage={episode.image}
               />
             </div>

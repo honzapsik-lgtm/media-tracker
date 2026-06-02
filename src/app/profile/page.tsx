@@ -16,8 +16,13 @@ export default async function ProfilePage() {
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
     include: {
-      ratings: { orderBy: { created_at: "desc" } },
+      ratings: { 
+        orderBy: { created_at: "desc" },
+        take: 50
+      },
       badges: { select: { badge_id: true, unlocked_at: true } },
+      stats_cache: true,
+      _count: { select: { ratings: true } }
     },
   });
 
@@ -25,6 +30,8 @@ export default async function ProfilePage() {
   
   const badges = user.badges || [];
   const formattedData = user.ratings.map(formatProfileRating);
+  const totalCount = user._count.ratings;
+  const statsCache = user.stats_cache || [];
 
   return (
     <main className="min-h-screen bg-gray-950 text-white pt-24 pb-12 px-8">
@@ -32,7 +39,12 @@ export default async function ProfilePage() {
         {/* Pass userBadges to the header so it can populate the edit dropdowns */}
         <ProfileHeader user={user} ratings={formattedData} userBadges={badges} />
         
-        <ProfileTabs initialData={formattedData} userBadges={badges} />
+        <ProfileTabs 
+          initialData={formattedData} 
+          initialCount={totalCount}
+          userBadges={badges} 
+          statsCache={statsCache}
+        />
       </div>
     </main>
   );

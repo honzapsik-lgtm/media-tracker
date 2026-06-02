@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { MediaItem } from '../types';
+import { prisma } from '@/lib/prisma';
 
 export async function searchGames(query: string): Promise<MediaItem[]> {
   const RAWG_API_KEY = process.env.RAWG_API_KEY;
@@ -8,7 +9,7 @@ export async function searchGames(query: string): Promise<MediaItem[]> {
   const encodedQuery = encodeURIComponent(query);
   const res = await fetch(
     `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&search=${encodedQuery}&page_size=10`,
-    { cache: 'no-store' }
+    { next: { revalidate: 3600 } }
   );
 
   if (!res.ok) return [];
@@ -24,6 +25,12 @@ export async function searchGames(query: string): Promise<MediaItem[]> {
 }
 
 export async function getGameDetails(id: string) {
+  const cacheId = `rawg-game-${id}`;
+  const cached = await prisma.apiCache.findUnique({ where: { id: cacheId } });
+  if (cached && cached.expires_at > new Date()) {
+    return cached.data as any;
+  }
+
   const RAWG_API_KEY = process.env.RAWG_API_KEY;
   if (!RAWG_API_KEY) throw new Error("RAWG API Key is missing");
 
@@ -38,8 +45,8 @@ export async function getGameDetails(id: string) {
   // RAWG provides HTML in their description, so we strip it out for clean text
   const cleanDescription = data.description_raw || data.description.replace(/<[^>]*>?/gm, '');
 
-  return {
-    id: `rawg-game-${data.id}`,
+  const result = {
+    id: cacheId,
     title: data.name,
     type: 'game',
     image: data.background_image || null,
@@ -59,4 +66,14 @@ export async function getGameDetails(id: string) {
     music: null,
     creator: null
   };
+
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 7);
+  await prisma.apiCache.upsert({
+    where: { id: cacheId },
+    update: { data: result as any, expires_at: expiresAt },
+    create: { id: cacheId, provider: 'rawg', data: result as any, expires_at: expiresAt }
+  });
+
+  return result;
 }

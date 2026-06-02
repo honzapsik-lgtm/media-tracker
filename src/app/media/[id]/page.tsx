@@ -5,7 +5,7 @@ import { getBookDetails } from "@/lib/books";
 import RatingSlider from "@/components/RatingSlider";
 import TextReviewEditor from "@/components/TextReviewEditor";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import ExpandableText from "@/components/ExpandableText";
 import WatchlistButton from "@/components/WatchlistButton";
 import { prisma } from "@/lib/prisma";
@@ -41,6 +41,16 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
   const mediaId = resolvedParams.id;
   
   const parts = mediaId.split('-');
+  
+  // Intercept and redirect direct links to seasons and episodes (e.g. from profile)
+  if (parts.length > 3 && parts[0] === "tmdb" && parts[1] === "tv") {
+    if (parts.length === 4 && parts[3].startsWith("s")) {
+      redirect(`/media/${parts[0]}-${parts[1]}-${parts[2]}/season/${parts[3].substring(1)}`);
+    } else if (parts.length === 5 && parts[3].startsWith("s") && parts[4].startsWith("e")) {
+      redirect(`/media/${parts[0]}-${parts[1]}-${parts[2]}/season/${parts[3].substring(1)}/episode/${parts[4].substring(1)}`);
+    }
+  }
+
   const provider = parts[0]; 
   
   let mediaDetails = null;

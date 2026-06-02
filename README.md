@@ -16,6 +16,14 @@ The app currently uses external media APIs for catalog data and a local PostgreS
 - RAWG powers game search/details/discovery.
 - Jikan powers manga search/details/discovery.
 
+## Architecture & Optimizations
+
+- **Hybrid Ranking & Stats Architecture**: The application uses a hybrid approach for media statistics and rankings.
+  - **Synchronous UI Updates**: When a user rates an item, `refreshMediaStats` runs synchronously to update the media's community average and rating count, followed by Next.js cache invalidation (`revalidatePath`) so the UI reflects the change instantly.
+  - **Asynchronous Global Rankings**: Heavy global rankings and badge calculation tasks are offloaded to a `BackgroundJob` table. A cron trigger periodically pings the `/api/worker` endpoint to process these jobs in the background.
+- **Raw PostgreSQL Window Functions**: The global leaderboards (`getRankedMedia`) use raw SQL CTEs and window functions (`RANK() OVER`) to rigidly calculate the true `list_rank` based on the mathematical average of user rank positions, decoupled from the outer page sorting order.
+- **Granular Media Types**: Seasons and Episodes are treated as first-class entities with their own rating and ranking systems, complete with pattern matching on `tmdb-tv-` prefixes to perfectly isolate shows, seasons, and episodes in user profile lists.
+
 ## Main Technologies
 
 - Next.js `16.2.6`

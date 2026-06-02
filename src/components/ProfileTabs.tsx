@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import Top100Ranker from "@/components/Top100Ranker";
 import { BADGE_DICTIONARY } from "@/components/ProfileHeader";
@@ -14,7 +14,7 @@ const getScoreColor = (score: number | null | undefined) => {
   return "bg-gray-900/80 text-gray-500 border-gray-700"; 
 };
 
-interface ProfileItem {
+export interface ProfileItem {
   mediaId: string;
   score: number;
   reviewText: string | null;
@@ -29,53 +29,127 @@ interface UserBadge {
   unlocked_at: Date | null;
 }
 
-export default function ProfileTabs({ initialData, userBadges = [] }: { initialData: ProfileItem[], userBadges?: UserBadge[] }) {
+export default function ProfileTabs({ 
+  initialData, 
+  initialCount,
+  userBadges = [],
+  statsCache = []
+}: { 
+  initialData: ProfileItem[], 
+  initialCount: number,
+  userBadges?: UserBadge[],
+  statsCache?: any[]
+}) {
   const [activeTab, setActiveTab] = useState<'ratings' | 'reviews' | 'top100' | 'stats' | 'achievements'>('ratings');
-  const [processedData] = useState(initialData || []);
+  const [page, setPage] = useState(1);
+  const [data, setData] = useState<ProfileItem[]>(initialData);
+  const [count, setCount] = useState<number>(initialCount);
+  const [isLoading, setIsLoading] = useState(false);
+  const limit = 50;
+
+  useEffect(() => {
+    if (activeTab === 'stats' || activeTab === 'achievements' || activeTab === 'top100') return;
+    if (activeTab === 'ratings' && page === 1 && data === initialData) return; 
+
+    const fetchData = async () => {
+      setIsLoading(true);
+      try {
+        const endpoint = activeTab === 'ratings' ? '/api/profile/ratings' : '/api/profile/reviews';
+        const res = await fetch(`${endpoint}?page=${page}&limit=${limit}`);
+        if (res.ok) {
+          const result = await res.json();
+          setData(result.results || []);
+          setCount(result.count || 0);
+        }
+      } catch (err) {
+        console.error("Failed to fetch paginated data", err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchData();
+  }, [activeTab, page]);
+
+  const handleTabSwitch = (tab: any) => {
+    if (tab !== activeTab) {
+      setActiveTab(tab);
+      setPage(1);
+      if (tab === 'ratings') {
+        setData(initialData);
+        setCount(initialCount);
+      } else if (tab === 'reviews') {
+        setData([]);
+        setCount(0);
+      }
+    }
+  };
 
   const getMediaUrl = (mediaId: string) => {
     if (!mediaId) return "#";
     const parts = mediaId.split('-');
-    if (parts[0] === 'tmdb' && parts[1] === 'tv' && parts.length === 4) {
-      const seasonNum = parts[3].replace('s', ''); 
-      return `/media/${parts[0]}-${parts[1]}-${parts[2]}/season/${seasonNum}`;
+    if (parts[0] === 'tmdb' && parts[1] === 'tv') {
+      if (parts.length === 4) {
+        const seasonNum = parts[3].replace('s', ''); 
+        return `/media/${parts[0]}-${parts[1]}-${parts[2]}/season/${seasonNum}`;
+      } else if (parts.length === 5) {
+        const seasonNum = parts[3].replace('s', ''); 
+        const epNum = parts[4].replace('e', ''); 
+        return `/media/${parts[0]}-${parts[1]}-${parts[2]}/season/${seasonNum}/episode/${epNum}`;
+      }
     }
     return `/media/${mediaId}`;
   };
 
   const getDisplayType = (type: string, mediaId: string) => {
-    if (type === 'SHOW' && mediaId.includes('-s')) return 'SEASON';
+    if (type === 'SHOW' || type === 'show') {
+      if (mediaId.includes('-e')) return 'EPISODE';
+      if (mediaId.includes('-s')) return 'SEASON';
+    }
     return type;
   };
 
-  // ---- STATISTICS LOGIC ----
-  const totalScores = processedData.map(d => d.score);
-  const avgScore = totalScores.length > 0 ? Math.round(totalScores.reduce((a, b) => a + b, 0) / totalScores.length) : 0;
-  
-  const distribution = [0, 0, 0, 0, 0]; 
-  totalScores.forEach(score => {
-    if (score <= 20) distribution[0]++;
-    else if (score <= 40) distribution[1]++;
-    else if (score <= 60) distribution[2]++;
-    else if (score <= 80) distribution[3]++;
-    else distribution[4]++;
+  // ---- STATISTICS LOGIC FROM BACKGROUND CACHE ----
+  let totalRatingCount = 0;
+  let sumAvg = 0;
+  let gameCount = 0;
+  let mangaCount = 0;
+  let maxScore = 0;
+  let minScore = 100;
+  const distribution = [0,0,0,0,0];
+
+  statsCache.forEach(cache => {
+    const json = cache.stats_json || {};
+    totalRatingCount += (json.total_count || 0);
+    sumAvg += (json.average_score || 0) * (json.total_count || 0);
+    
+    if (cache.media_type === "game") gameCount += (json.total_count || 0);
+    if (cache.media_type === "manga") mangaCount += (json.total_count || 0);
+    
+    if (json.highest_score > maxScore) maxScore = json.highest_score;
+    if (json.lowest_score < minScore && json.lowest_score > 0) minScore = json.lowest_score;
+    
+    const dist = json.score_distribution || {};
+    distribution[0] += (dist["1"]||0) + (dist["2"]||0);
+    distribution[1] += (dist["3"]||0) + (dist["4"]||0);
+    distribution[2] += (dist["5"]||0) + (dist["6"]||0);
+    distribution[3] += (dist["7"]||0) + (dist["8"]||0);
+    distribution[4] += (dist["9"]||0) + (dist["10"]||0);
   });
+
+  const avgScore = totalRatingCount > 0 ? Math.round(sumAvg / totalRatingCount) : 0;
   const maxBucket = Math.max(...distribution, 1);
+  const hasVoidStare = minScore <= 20 && totalRatingCount > 0;
+  const hasMasterpiece = maxScore === 100;
 
   // ---- DYNAMIC BADGE PROGRESS LOGIC ----
-  const gameCount = processedData.filter(d => d.type === 'GAME').length;
-  const mangaCount = processedData.filter(d => d.type === 'MANGA').length;
-  const hasVoidStare = processedData.some(d => d.score <= 20);
-  const hasMasterpiece = processedData.some(d => d.score === 100);
-
   const getBadgeProgress = (badgeId: string) => {
     let current = 0;
     let target = 1;
     
     switch (badgeId) {
-      case 'ratings_10': target = 10; current = processedData.length; break;
-      case 'ratings_50': target = 50; current = processedData.length; break;
-      case 'ratings_100': target = 100; current = processedData.length; break;
+      case 'ratings_10': target = 10; current = totalRatingCount; break;
+      case 'ratings_50': target = 50; current = totalRatingCount; break;
+      case 'ratings_100': target = 100; current = totalRatingCount; break;
       case 'games_10': target = 10; current = gameCount; break;
       case 'manga_10': target = 10; current = mangaCount; break;
       case 'void_stare': target = 1; current = hasVoidStare ? 1 : 0; break;
@@ -91,39 +165,84 @@ export default function ProfileTabs({ initialData, userBadges = [] }: { initialD
 
   const renderTabNavigation = () => (
     <div className="flex flex-wrap gap-2 mb-8 bg-gray-900 p-2 rounded-xl border border-gray-800 w-fit">
-      <button onClick={() => setActiveTab('ratings')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${activeTab === 'ratings' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>All Ratings</button>
-      <button onClick={() => setActiveTab('reviews')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${activeTab === 'reviews' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>Written Reviews</button>
-      <button onClick={() => setActiveTab('top100')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${activeTab === 'top100' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>List Rank</button>
+      <button onClick={() => handleTabSwitch('ratings')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${activeTab === 'ratings' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>All Ratings</button>
+      <button onClick={() => handleTabSwitch('reviews')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${activeTab === 'reviews' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>Written Reviews</button>
+      <button onClick={() => handleTabSwitch('top100')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${activeTab === 'top100' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>Ranking Lists</button>
       <div className="w-px h-6 bg-gray-700 self-center mx-1 hidden sm:block"></div>
-      <button onClick={() => setActiveTab('stats')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${activeTab === 'stats' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>Statistics</button>
-      <button onClick={() => setActiveTab('achievements')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${activeTab === 'achievements' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>Achievements</button>
+      <button onClick={() => handleTabSwitch('stats')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${activeTab === 'stats' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>Statistics</button>
+      <button onClick={() => handleTabSwitch('achievements')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${activeTab === 'achievements' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>Achievements</button>
     </div>
   );
+
+  const renderPagination = () => {
+    const hasNext = page * limit < count;
+    const hasPrev = page > 1;
+
+    if (!hasNext && !hasPrev) return null;
+
+    return (
+      <div className="flex justify-center items-center gap-4 mt-12 border-t border-gray-800 pt-8">
+        {hasPrev ? <button onClick={() => setPage(p => p - 1)} className="bg-gray-900 border border-gray-800 hover:bg-gray-800 hover:text-white text-gray-400 font-bold py-2 px-6 rounded-lg transition-colors text-sm">← Prev</button> : <div className="w-24"></div>}
+        <span className="text-gray-500 font-bold text-sm">Page {page} of {Math.ceil(count / limit)}</span>
+        {hasNext ? <button onClick={() => setPage(p => p + 1)} className="bg-gray-900 border border-gray-800 hover:bg-gray-800 hover:text-white text-gray-400 font-bold py-2 px-6 rounded-lg transition-colors text-sm">Next →</button> : <div className="w-24"></div>}
+      </div>
+    );
+  };
 
   return (
     <div>
       {renderTabNavigation()}
 
       {activeTab === 'ratings' && (
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
-          {processedData.map((item) => (
-            <div key={item.mediaId} className="relative group bg-gray-900 rounded-xl overflow-hidden shadow-lg border border-gray-800 flex flex-col h-full">
-              <div className={`absolute top-2 right-2 z-10 px-2 py-1 text-xs font-black rounded shadow-lg border backdrop-blur-md ${getScoreColor(item.score)}`}>
-                {item.score}%
+        <div className={`transition-opacity duration-300 ${isLoading ? 'opacity-50' : 'opacity-100'}`}>
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
+            {data.map((item) => (
+              <div key={item.mediaId} className="relative group bg-gray-900 rounded-xl overflow-hidden shadow-lg border border-gray-800 flex flex-col h-full">
+                <div className={`absolute top-2 right-2 z-10 px-2 py-1 text-xs font-black rounded shadow-lg border backdrop-blur-md ${getScoreColor(item.score)}`}>
+                  {item.score}%
+                </div>
+                <Link href={getMediaUrl(item.mediaId)} className="block relative aspect-[2/3] overflow-hidden">
+                  {item.image ? <img src={item.image} alt={item.title} className="w-full h-full object-cover group-hover:opacity-80 transition-opacity" /> : <div className="w-full h-full bg-gray-800 flex items-center justify-center text-gray-500 p-4 text-center">No Image</div>}
+                </Link>
+                <div className="p-4 flex flex-col flex-1">
+                  <h2 className="font-semibold text-lg truncate mb-1" title={item.title}>{item.title}</h2>
+                  <p className="text-gray-400 text-xs uppercase tracking-wider mb-4">{getDisplayType(item.type, item.mediaId)}</p>
+                </div>
               </div>
-              <Link href={getMediaUrl(item.mediaId)} className="block relative aspect-[2/3] overflow-hidden">
-                {item.image ? <img src={item.image} alt={item.title} className="w-full h-full object-cover group-hover:opacity-80 transition-opacity" /> : <div className="w-full h-full bg-gray-800 flex items-center justify-center text-gray-500 p-4 text-center">No Image</div>}
-              </Link>
-              <div className="p-4 flex flex-col flex-1">
-                <h2 className="font-semibold text-lg truncate mb-1" title={item.title}>{item.title}</h2>
-                <p className="text-gray-400 text-xs uppercase tracking-wider mb-4">{getDisplayType(item.type, item.mediaId)}</p>
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
+          {renderPagination()}
         </div>
       )}
 
-      {activeTab === 'top100' && <Top100Ranker rawData={processedData} />}
+      {activeTab === 'reviews' && (
+        <div className={`space-y-6 max-w-4xl transition-opacity duration-300 ${isLoading ? 'opacity-50' : 'opacity-100'}`}>
+          {data.length === 0 && !isLoading && (
+             <div className="text-gray-500 italic p-6 border border-dashed border-gray-800 rounded-2xl">You haven't written any reviews yet.</div>
+          )}
+          {data.map((item) => (
+            <div key={item.mediaId} className="bg-gray-900 border border-gray-800 rounded-xl p-6 flex gap-6">
+              {item.image && (
+                <Link href={getMediaUrl(item.mediaId)} className="w-24 shrink-0 block">
+                  <img src={item.image} alt={item.title} className="w-full rounded shadow-lg" />
+                </Link>
+              )}
+              <div className="flex-1">
+                <div className="flex items-center gap-4 mb-2">
+                  <Link href={getMediaUrl(item.mediaId)} className="font-bold text-xl hover:text-blue-400">{item.title}</Link>
+                  <span className={`px-2 py-1 text-xs font-black rounded shadow-lg border backdrop-blur-md ${getScoreColor(item.score)}`}>
+                    {item.score}%
+                  </span>
+                </div>
+                <p className="text-gray-300 whitespace-pre-wrap">{item.reviewText}</p>
+              </div>
+            </div>
+          ))}
+          {renderPagination()}
+        </div>
+      )}
+
+      {activeTab === 'top100' && <Top100Ranker />}
 
       {activeTab === 'stats' && (
         <div className="grid md:grid-cols-2 gap-8">
@@ -154,7 +273,6 @@ export default function ProfileTabs({ initialData, userBadges = [] }: { initialD
         </div>
       )}
 
-      {/* THE NEW ACHIEVEMENTS LIST LAYOUT */}
       {activeTab === 'achievements' && (
         <div className="flex flex-col gap-3 max-w-4xl">
           {BADGE_DICTIONARY.map((badge) => {
@@ -165,12 +283,10 @@ export default function ProfileTabs({ initialData, userBadges = [] }: { initialD
             return (
               <div key={badge.id} className={`p-4 rounded-xl border flex items-center gap-5 transition-all duration-300 ${isUnlocked ? 'bg-gray-900 border-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.05)]' : 'bg-gray-950/50 border-gray-800/80 grayscale'}`}>
                 
-                {/* Icon Block */}
                 <div className={`w-14 h-14 shrink-0 flex items-center justify-center text-2xl rounded-lg border-2 ${isUnlocked ? 'bg-blue-900/30 border-blue-500 text-white' : 'bg-gray-900 border-gray-700 text-gray-600'}`}>
                   {badge.icon}
                 </div>
                 
-                {/* Text Block */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-baseline justify-between mb-1">
                     <h3 className={`font-black text-lg tracking-tight truncate ${isUnlocked ? 'text-gray-100' : 'text-gray-500'}`}>{badge.title}</h3>
@@ -187,7 +303,6 @@ export default function ProfileTabs({ initialData, userBadges = [] }: { initialD
                   <p className="text-sm text-gray-400 truncate">{badge.desc}</p>
                 </div>
 
-                {/* Progress Bar (Only visible if locked) */}
                 {!isUnlocked && (
                   <div className="w-32 shrink-0 hidden sm:block">
                     <div className="w-full h-2 bg-gray-900 rounded-full overflow-hidden border border-gray-800">

@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { MediaItem } from '@/types';
+import { prisma } from '@/lib/prisma';
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
 const BASE_URL = 'https://api.themoviedb.org/3';
 
@@ -39,7 +40,7 @@ export async function searchTMDb(query: string): Promise<MediaItem[]> {
   const encodedQuery = encodeURIComponent(query);
   const res = await fetch(
     `${BASE_URL}/search/multi?api_key=${TMDB_API_KEY}&query=${encodedQuery}&language=en-US&page=1`,
-    { cache: 'no-store' }
+    { next: { revalidate: 3600 } }
   );
 
   if (!res.ok) throw new Error('Failed to search TMDb');
@@ -59,6 +60,12 @@ export async function searchTMDb(query: string): Promise<MediaItem[]> {
 }
 
 export async function getTMDbDetails(id: string, type: 'movie' | 'tv') {
+  const cacheId = `tmdb-${type}-${id}`;
+  const cached = await prisma.apiCache.findUnique({ where: { id: cacheId } });
+  if (cached && cached.expires_at > new Date()) {
+    return cached.data as any;
+  }
+
   if (!TMDB_API_KEY) throw new Error("TMDb API Key is missing");
 
   const res = await fetch(
@@ -87,8 +94,9 @@ export async function getTMDbDetails(id: string, type: 'movie' | 'tv') {
   const writer = crew.find((c: any) => c.job === 'Screenplay' || c.job === 'Writer')?.name || null;
   const music = crew.find((c: any) => c.job === 'Original Music Composer' || c.job === 'Music')?.name || null;
   const creator = data.created_by && data.created_by.length > 0 ? data.created_by.map((c: any) => c.name).join(', ') : null;  
-  return {
-    id: `tmdb-${type}-${data.id}`,
+  
+  const result = {
+    id: cacheId,
     title: data.title || data.name,
     type: type === 'tv' ? 'show' : 'movie',
     image: data.poster_path ? `https://image.tmdb.org/t/p/w500${data.poster_path}` : null,
@@ -107,4 +115,14 @@ export async function getTMDbDetails(id: string, type: 'movie' | 'tv') {
     writer,
     music
   };
+
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 7);
+  await prisma.apiCache.upsert({
+    where: { id: cacheId },
+    update: { data: result as any, expires_at: expiresAt },
+    create: { id: cacheId, provider: 'tmdb', data: result as any, expires_at: expiresAt }
+  });
+
+  return result;
 }

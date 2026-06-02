@@ -37,8 +37,8 @@ export default function AppDrawer() {
       setIsLoading(true);
       const res = await fetch('/api/watchlist');
       if (res.ok) {
-        const data = await res.json() as WatchlistItem[];
-        setWatchlist(data);
+        const data = await res.json();
+        setWatchlist(data.results || []);
       }
       setIsLoading(false);
     };
