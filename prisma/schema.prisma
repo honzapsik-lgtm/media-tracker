@@ -162,3 +162,29 @@ model BackgroundJob {
   created_at   DateTime  @default(now())
   processed_at DateTime?
 }
+
+model SystemLog {
+  id           String   @id @default(cuid())
+  level        String
+  event        String
+  message      String?
+  requestId    String?
+  userId       String?
+  mediaId      String?
+  mediaType    String?
+  jobId        String?
+  durationMs   Int?
+  metadata     Json?
+  errorName    String?
+  errorMessage String?
+  errorStack   String?
+  createdAt    DateTime @default(now())
+
+  @@index([level, createdAt])
+  @@index([event, createdAt])
+  @@index([requestId])
+  @@index([userId, createdAt])
+  @@index([mediaId, createdAt])
+  @@index([jobId])
+  @@index([createdAt])
+}

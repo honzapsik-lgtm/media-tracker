@@ -43,6 +43,11 @@ The app currently uses external media APIs for catalog data and a local PostgreS
   - Discover cache entries live for 6 hours and are keyed by media type, genre, year, and sort.
   - Detail cache entries live for 7 days.
   - Cache entries store normalized media data, not API-key-bearing request URLs.
+- **Admin Diagnostics Phase 1**: Operational events are stored in `SystemLog` and inspected through admin-only diagnostics routes.
+  - `/admin/logs` renders the system log viewer.
+  - `/api/admin/logs` returns paginated log JSON.
+  - `/api/admin/health` records successful admin health checks.
+  - Sensitive error stacks are not returned from the logs API in production.
 
 ## Main Technologies
 
@@ -61,11 +66,15 @@ The app currently uses external media APIs for catalog data and a local PostgreS
 - `src/components` - UI components and interactive client controls.
 - `src/lib/auth.ts` - Shared NextAuth configuration.
 - `src/lib/admin-auth.ts` - Server-side admin authorization helper.
+- `src/lib/admin-api.ts` - Shared admin API error response helpers.
+- `src/lib/logger.ts` - Structured console and persistent system log helper.
+- `src/lib/request-id.ts` - Request ID generation and header extraction helpers.
 - `src/lib/prisma.ts` - Prisma client setup with the PostgreSQL adapter.
 - `src/lib/api-cache.ts` - Shared PostgreSQL cache helper for external provider results.
 - `src/lib/db-wipe.ts` - Shared local app-data wipe helper used by the CLI script and debug API route.
 - `src/lib/media-db.ts` - Database helpers for ratings, stats, badges, rankings, and profile data.
 - `src/app/api/admin/health/route.ts` - Admin-only health check endpoint.
+- `src/app/api/admin/logs/route.ts` - Admin-only paginated system logs endpoint.
 - `src/app/api/debug/wipe-db/route.ts` - Development-only debug endpoint for clearing app data.
 - `scripts/nuke-db.ts` - CLI database wipe script that preserves auth users/sessions.
 - `scripts/make-admin.ts` and `scripts/make-user.ts` - Local role management scripts.

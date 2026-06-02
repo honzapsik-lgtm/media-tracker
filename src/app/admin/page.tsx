@@ -1,8 +1,14 @@
+import Link from "next/link";
 import { AdminAuthError, requireAdmin } from "@/lib/admin-auth";
+import { appLog } from "@/lib/logger";
+import { createRequestId } from "@/lib/request-id";
+
+export const dynamic = "force-dynamic";
 
 const cards = ["Background Jobs", "Logs", "Cache", "Database Checks"];
 
 export default async function AdminPage() {
+  const requestId = createRequestId();
   let admin = null;
   let deniedCode: string | null = null;
 
@@ -10,6 +16,13 @@ export default async function AdminPage() {
     admin = await requireAdmin();
   } catch (error) {
     deniedCode = error instanceof AdminAuthError ? error.code : "ADMIN_REQUIRED";
+    await appLog({
+      level: error instanceof AdminAuthError ? "warn" : "error",
+      event: "admin.page.denied",
+      requestId,
+      error,
+      persist: true,
+    });
   }
 
   if (!admin) {
@@ -26,6 +39,13 @@ export default async function AdminPage() {
     );
   }
 
+  await appLog({
+    level: "info",
+    event: "admin.page.viewed",
+    requestId,
+    userId: admin.id,
+  });
+
   return (
     <main className="min-h-screen bg-gray-950 text-white px-8 pb-16 pt-24">
       <div className="mx-auto max-w-6xl">
@@ -41,12 +61,24 @@ export default async function AdminPage() {
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {cards.map((card) => (
-            <div key={card} className="rounded-lg border border-gray-800 bg-gray-900 p-5">
-              <h2 className="mb-2 font-black text-gray-100">{card}</h2>
-              <p className="text-sm text-gray-500">Placeholder</p>
-            </div>
-          ))}
+          {cards.map((card) => {
+            const content = (
+              <>
+                <h2 className="mb-2 font-black text-gray-100">{card}</h2>
+                <p className="text-sm text-gray-500">Placeholder</p>
+              </>
+            );
+
+            return card === "Logs" ? (
+              <Link key={card} href="/admin/logs" className="rounded-lg border border-blue-500/40 bg-blue-900/20 p-5 transition-colors hover:border-blue-400">
+                {content}
+              </Link>
+            ) : (
+              <div key={card} className="rounded-lg border border-gray-800 bg-gray-900 p-5">
+                {content}
+              </div>
+            );
+          })}
         </div>
       </div>
     </main>
