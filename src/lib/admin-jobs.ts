@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { ADMIN_DEFAULT_PAGE_SIZE, ADMIN_MAX_PAGE_SIZE, ADMIN_STUCK_JOB_MINUTES } from "@/lib/admin-constants";
 import { JOB_STATUS } from "@/lib/jobs";
 import { prisma } from "@/lib/prisma";
 
@@ -44,7 +45,7 @@ export function buildJobWhere(filters: JobFilters): Prisma.BackgroundJobWhereInp
 
 export async function getPaginatedJobs(filters: JobFilters) {
   const page = Math.max(1, filters.page ?? 1);
-  const pageSize = Math.min(Math.max(1, filters.pageSize ?? 50), 100);
+  const pageSize = Math.min(Math.max(1, filters.pageSize ?? ADMIN_DEFAULT_PAGE_SIZE), ADMIN_MAX_PAGE_SIZE);
   const where = buildJobWhere(filters);
 
   const [items, total] = await Promise.all([
@@ -70,7 +71,7 @@ export async function getPaginatedJobs(filters: JobFilters) {
 
 export async function getJobSummary() {
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-  const stuckCutoff = new Date(Date.now() - 15 * 60 * 1000);
+  const stuckCutoff = new Date(Date.now() - ADMIN_STUCK_JOB_MINUTES * 60 * 1000);
 
   const [
     pending,

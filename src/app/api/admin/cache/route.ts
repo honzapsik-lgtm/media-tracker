@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { adminErrorResponse } from "@/lib/admin-api";
 import { AdminAuthError, requireAdmin } from "@/lib/admin-auth";
 import { ADMIN_DEFAULT_PAGE_SIZE } from "@/lib/admin-constants";
-import { getPaginatedJobs, parsePositiveInt, serializeJob } from "@/lib/admin-jobs";
+import { getPaginatedCacheEntries, parseBooleanFilter } from "@/lib/admin-cache";
+import { parsePositiveInt } from "@/lib/admin-jobs";
 import { appLog } from "@/lib/logger";
 import { getOrCreateRequestId } from "@/lib/request-id";
 
@@ -12,32 +13,29 @@ export async function GET(request: Request) {
   try {
     const admin = await requireAdmin();
     const { searchParams } = new URL(request.url);
-    const data = await getPaginatedJobs({
+    const data = await getPaginatedCacheEntries({
       page: parsePositiveInt(searchParams.get("page"), 1),
       pageSize: parsePositiveInt(searchParams.get("pageSize"), ADMIN_DEFAULT_PAGE_SIZE),
-      status: searchParams.get("status") ?? undefined,
-      type: searchParams.get("type") ?? undefined,
-      dedupeKey: searchParams.get("dedupeKey") ?? undefined,
-      userId: searchParams.get("userId") ?? undefined,
       q: searchParams.get("q") ?? undefined,
+      type: searchParams.get("type") ?? undefined,
+      provider: searchParams.get("provider") ?? undefined,
+      expired: parseBooleanFilter(searchParams.get("expired")),
+      sort: searchParams.get("sort") ?? undefined,
     });
 
     await appLog({
       level: "info",
-      event: "admin.jobs.api.viewed",
+      event: "admin.cache.api.viewed",
       requestId,
       userId: admin.id,
       metadata: data.pagination,
     });
 
-    return NextResponse.json({
-      items: data.items.map(serializeJob),
-      pagination: data.pagination,
-    });
+    return NextResponse.json(data);
   } catch (error) {
     await appLog({
       level: error instanceof AdminAuthError ? "warn" : "error",
-      event: error instanceof AdminAuthError ? "admin.jobs.denied" : "admin.jobs.failed",
+      event: error instanceof AdminAuthError ? "admin.cache.denied" : "admin.cache.failed",
       requestId,
       error,
       persist: true,

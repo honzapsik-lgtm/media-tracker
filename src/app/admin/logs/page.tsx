@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { Prisma } from "@prisma/client";
+import { AdminNav } from "@/app/admin/admin-nav";
+import { AdminBadge } from "@/components/admin/AdminBadge";
 import { AdminAuthError, requireAdmin } from "@/lib/admin-auth";
-import { appLog } from "@/lib/logger";
+import { ADMIN_DEFAULT_PAGE_SIZE, ADMIN_MAX_PAGE_SIZE } from "@/lib/admin-constants";
+import { appLog, sanitizeLogMetadata } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { createRequestId } from "@/lib/request-id";
 
@@ -50,13 +53,6 @@ function pageHref(params: Record<string, string | undefined>, page: number) {
   return `/admin/logs?${search.toString()}`;
 }
 
-const levelClasses: Record<string, string> = {
-  debug: "border-gray-700 bg-gray-900 text-gray-400",
-  info: "border-blue-500/40 bg-blue-900/20 text-blue-300",
-  warn: "border-amber-500/40 bg-amber-900/20 text-amber-300",
-  error: "border-red-500/40 bg-red-900/20 text-red-300",
-};
-
 export default async function AdminLogsPage({
   searchParams,
 }: {
@@ -95,7 +91,8 @@ export default async function AdminLogsPage({
   }
 
   const page = parsePositiveInt(params.page, 1);
-  const pageSize = Math.min(parsePositiveInt(params.pageSize, 50), 100);
+  const pageSize = Math.min(parsePositiveInt(params.pageSize, ADMIN_DEFAULT_PAGE_SIZE), ADMIN_MAX_PAGE_SIZE);
+  const lastRefreshed = new Date();
   const where = buildWhere(params);
 
   const [logs, total] = await Promise.all([
@@ -121,14 +118,13 @@ export default async function AdminLogsPage({
   return (
     <main className="min-h-screen bg-gray-950 px-8 pb-16 pt-24 text-white">
       <div className="mx-auto max-w-7xl">
-        <Link href="/admin" className="mb-6 inline-block text-sm font-bold text-blue-400 hover:text-blue-300">
-          Back to Admin
-        </Link>
+        <AdminNav />
         <div className="mb-8">
           <h1 className="mb-2 text-4xl font-black">System Logs</h1>
           <p className="text-gray-400">
             Operational events for admin access, health checks, future worker jobs, cache activity, and slow operations.
           </p>
+          <p className="mt-2 text-sm text-gray-500">Last refreshed: {lastRefreshed.toLocaleString()}</p>
         </div>
 
         <form className="mb-8 grid gap-3 rounded-lg border border-gray-800 bg-gray-900 p-4 md:grid-cols-4">
@@ -173,25 +169,29 @@ export default async function AdminLogsPage({
               {logs.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="px-4 py-10 text-center text-gray-500">
-                    No logs found.
+                    No logs match these filters. Broaden the filters or trigger an admin action to create a diagnostic event.
                   </td>
                 </tr>
               ) : (
-                logs.map((log) => (
+                logs.map((log) => {
+                  const metadata =
+                    log.metadata && typeof log.metadata === "object" && !Array.isArray(log.metadata)
+                      ? sanitizeLogMetadata(log.metadata as Record<string, unknown>)
+                      : log.metadata;
+
+                  return (
                   <tr key={log.id} className="border-b border-gray-900 align-top">
                     <td className="px-4 py-3 text-gray-400">{log.createdAt.toLocaleString()}</td>
                     <td className="px-4 py-3">
-                      <span className={`rounded border px-2 py-1 text-xs font-black ${levelClasses[log.level] ?? levelClasses.debug}`}>
-                        {log.level}
-                      </span>
+                      <AdminBadge value={log.level} />
                     </td>
                     <td className="px-4 py-3 font-bold text-gray-200">{log.event}</td>
                     <td className="max-w-sm px-4 py-3 text-gray-300">
                       <div>{log.message ?? "-"}</div>
-                      {(log.errorName || log.errorMessage || log.metadata) && (
+                      {(log.errorName || log.errorMessage || metadata) && (
                         <div className="mt-2 rounded bg-gray-900 p-2 text-xs text-gray-500">
                           {log.errorName && <div>{log.errorName}: {log.errorMessage}</div>}
-                          {log.metadata != null && <pre className="mt-1 whitespace-pre-wrap">{JSON.stringify(log.metadata, null, 2)}</pre>}
+                          {metadata != null && <pre className="mt-1 whitespace-pre-wrap">{JSON.stringify(metadata, null, 2)}</pre>}
                         </div>
                       )}
                     </td>
@@ -201,7 +201,8 @@ export default async function AdminLogsPage({
                     <td className="px-4 py-3 text-gray-500">{log.jobId ?? "-"}</td>
                     <td className="px-4 py-3 text-gray-500">{log.durationMs != null ? `${log.durationMs}ms` : "-"}</td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>

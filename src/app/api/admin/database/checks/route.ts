@@ -1,11 +1,8 @@
 import { NextResponse } from "next/server";
 import { adminErrorResponse } from "@/lib/admin-api";
-import {
-  AdminAuthError,
-  requireAdmin,
-} from "@/lib/admin-auth";
-import { appLog, timeOperation } from "@/lib/logger";
-import { prisma } from "@/lib/prisma";
+import { AdminAuthError, requireAdmin } from "@/lib/admin-auth";
+import { runDatabaseIntegrityChecks } from "@/lib/admin-database";
+import { appLog } from "@/lib/logger";
 import { getOrCreateRequestId } from "@/lib/request-id";
 
 export async function GET(request: Request) {
@@ -13,24 +10,22 @@ export async function GET(request: Request) {
 
   try {
     const admin = await requireAdmin();
-    return await timeOperation({
-      event: "admin.health.checked",
+    const checks = await runDatabaseIntegrityChecks();
+
+    await appLog({
+      level: "info",
+      event: "admin.database.checks_run",
       requestId,
       userId: admin.id,
+      metadata: { count: checks.length },
       persist: true,
-    }, async () => {
-      await prisma.$queryRaw`SELECT 1`;
-      return NextResponse.json({
-        ok: true,
-        admin: true,
-        databaseReachable: true,
-        timestamp: new Date().toISOString(),
-      });
     });
+
+    return NextResponse.json({ items: checks });
   } catch (error) {
     await appLog({
       level: error instanceof AdminAuthError ? "warn" : "error",
-      event: error instanceof AdminAuthError ? "admin.health.denied" : "admin.health.failed",
+      event: error instanceof AdminAuthError ? "admin.database.checks.denied" : "admin.database.checks.failed",
       requestId,
       error,
       persist: true,

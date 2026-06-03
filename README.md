@@ -28,7 +28,7 @@ The app currently uses external media APIs for catalog data and a local PostgreS
 - **Watchlists**: Maintain "Plan to Watch", "Watching", "Completed", and "Dropped" lists for your media backlog.
 - **Profile Stats & Badges**: Unlock gamified badges based on your reviewing habits and view dynamic statistical breakdowns of your ratings.
 - **Developer Wipe Tool**: In local development, the app drawer includes a guarded `Debug: Wipe DB` action that clears app data while preserving auth users/sessions.
-- **Admin Placeholder**: Admin-only pages under `/admin` and APIs under `/api/admin/*` are protected by a lightweight role check.
+- **Admin Diagnostics**: Admin-only pages under `/admin` and APIs under `/api/admin/*` expose internal diagnostics for logs, background jobs, provider cache health, and database integrity checks.
 
 ## Architecture & Optimizations
 
@@ -55,6 +55,19 @@ The app currently uses external media APIs for catalog data and a local PostgreS
   - `update_user_stats` jobs are deduped by user through `update_user_stats:<userId>`.
   - Admins can retry failed jobs, cancel pending jobs, process a batch, mark stuck jobs failed, and clean up old completed/cancelled jobs.
   - Cron and local worker polling still use `/api/worker`.
+- **Admin Diagnostics Phase 3**: `/admin` is now an overview dashboard for internal system health.
+  - `/admin` summarizes background jobs, system logs, provider cache, database counts, and active warnings.
+  - `/admin/cache` inspects `ApiCache` entries, supports filtering by key/provider/type/freshness, shows payload sizes without dumping provider payloads, and can delete expired cache entries.
+  - `/admin/database` shows database summaries and read-only integrity checks for ratings, media stats, user stats cache rows, jobs, cache entries, and recent system errors.
+  - `/admin/jobs` and `/admin/logs` remain linked from the admin overview and shared admin navigation.
+  - New admin cache APIs live under `/api/admin/cache`, `/api/admin/cache/summary`, and `/api/admin/cache/cleanup`.
+  - New admin database APIs live under `/api/admin/database/summary` and `/api/admin/database/checks`.
+- **Admin Diagnostics Phase 3.5**: Admin diagnostics now include safety and clarity hardening.
+  - Admin pages show last-refreshed timestamps and clearer empty states.
+  - Destructive cleanup actions require typed confirmation.
+  - `SystemLog` metadata is sanitized before writing and before admin display.
+  - Admin health returns a timestamp and lightweight database reachability.
+  - Database integrity checks include a SystemLog retention warning for rows older than 30 days.
 
 ## Main Technologies
 
@@ -74,10 +87,14 @@ The app currently uses external media APIs for catalog data and a local PostgreS
 - `src/lib/auth.ts` - Shared NextAuth configuration.
 - `src/lib/admin-auth.ts` - Server-side admin authorization helper.
 - `src/lib/admin-api.ts` - Shared admin API error response helpers.
+- `src/lib/admin-constants.ts` - Shared admin defaults, page-size caps, timing thresholds, and confirmation text.
 - `src/lib/logger.ts` - Structured console and persistent system log helper.
 - `src/lib/request-id.ts` - Request ID generation and header extraction helpers.
 - `src/lib/jobs.ts` - Background job enqueue, claim, retry, cancel, cleanup, and stuck-job helpers.
 - `src/lib/admin-jobs.ts` - Admin job filtering, pagination, serialization, and summary helpers.
+- `src/lib/admin-overview.ts` - Admin overview summary and warning aggregation helper.
+- `src/lib/admin-cache.ts` - Admin provider cache summaries, pagination, and expired-cache cleanup.
+- `src/lib/admin-database.ts` - Database summaries and read-only integrity checks.
 - `src/lib/prisma.ts` - Prisma client setup with the PostgreSQL adapter.
 - `src/lib/api-cache.ts` - Shared PostgreSQL cache helper for external provider results.
 - `src/lib/db-wipe.ts` - Shared local app-data wipe helper used by the CLI script and debug API route.
@@ -85,6 +102,8 @@ The app currently uses external media APIs for catalog data and a local PostgreS
 - `src/app/api/admin/health/route.ts` - Admin-only health check endpoint.
 - `src/app/api/admin/jobs/route.ts` - Admin-only paginated jobs endpoint.
 - `src/app/api/admin/logs/route.ts` - Admin-only paginated system logs endpoint.
+- `src/app/api/admin/cache/*` - Admin-only cache summary, listing, and expired-entry cleanup endpoints.
+- `src/app/api/admin/database/*` - Admin-only database summary and integrity-check endpoints.
 - `src/app/api/debug/wipe-db/route.ts` - Development-only debug endpoint for clearing app data.
 - `scripts/nuke-db.ts` - CLI database wipe script that preserves auth users/sessions.
 - `scripts/make-admin.ts` and `scripts/make-user.ts` - Local role management scripts.
@@ -194,6 +213,29 @@ npm run make-user -- user@example.com
 ```
 
 Role changes are intentionally script-only. There is no public UI for role editing and no automatic first-user promotion.
+
+## Admin Troubleshooting Map
+
+| Symptom | First place to inspect |
+| --- | --- |
+| Profile stats wrong | `/admin/jobs`, then `/admin/database` users missing `UserStatsCache` |
+| Rating saved but community score wrong | `/admin/database` media_stats checks, then `/admin/logs` |
+| Watchlist counts wrong | `/admin/jobs` `update_user_stats` jobs, then `/admin/logs` |
+| Detail/search slow or stale | `/admin/cache` |
+| Ranking page slow/wrong | `/admin/database` and `/admin/logs` |
+| Worker not updating | `/admin/jobs` |
+| Recent unknown failure | `/admin/logs?level=error` |
+| DB/cache growing | `/admin/cache` and `/admin/database` |
+
+## Admin Safety Notes
+
+- Admin routes require `role = admin`.
+- Role changes remain script-only through `npm run make-admin` and `npm run make-user`.
+- Admin pages and APIs should not expose secrets, OAuth tokens, cookies, raw headers, API keys, or provider URLs containing keys.
+- Destructive actions require confirmation text before they run.
+- `SystemLog` metadata is redacted for sensitive key names such as tokens, cookies, API keys, secrets, and database URLs.
+- `SystemLog` can grow over time and needs a future retention policy. Phase 3.5 only warns about old log rows; it does not delete them automatically.
+- Full lint status should remain interpreted carefully because older unrelated lint errors still exist.
 
 ## Useful Commands
 

@@ -70,13 +70,22 @@ export default function AppDrawer() {
   };
 
   const handleWipeDb = async () => {
-    if (!window.confirm("Wipe all local app data? Auth users will stay, but ratings, reviews, lists, stats, caches, jobs, badges, and badge showcases will be cleared.")) {
+    const confirmText = "WIPE LOCAL APP DATA";
+    const confirmation = window.prompt(
+      `Wipe all local app data? Auth users will stay, but ratings, reviews, lists, stats, caches, jobs, badges, and badge showcases will be cleared.\n\nType ${confirmText} to continue.`
+    );
+
+    if (confirmation !== confirmText) {
       return;
     }
 
     setIsWipingDb(true);
     try {
-      const res = await fetch("/api/debug/wipe-db", { method: "POST" });
+      const res = await fetch("/api/debug/wipe-db", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: confirmText }),
+      });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || "Could not wipe database.");

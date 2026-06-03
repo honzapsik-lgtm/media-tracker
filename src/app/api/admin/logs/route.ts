@@ -2,7 +2,8 @@ import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { adminErrorResponse } from "@/lib/admin-api";
 import { AdminAuthError, requireAdmin } from "@/lib/admin-auth";
-import { appLog } from "@/lib/logger";
+import { ADMIN_DEFAULT_PAGE_SIZE, ADMIN_MAX_PAGE_SIZE } from "@/lib/admin-constants";
+import { appLog, sanitizeLogMetadata } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { getOrCreateRequestId } from "@/lib/request-id";
 
@@ -47,7 +48,7 @@ export async function GET(request: Request) {
     const admin = await requireAdmin();
     const { searchParams } = new URL(request.url);
     const page = parsePositiveInt(searchParams.get("page"), 1);
-    const pageSize = Math.min(parsePositiveInt(searchParams.get("pageSize"), 50), 100);
+    const pageSize = Math.min(parsePositiveInt(searchParams.get("pageSize"), ADMIN_DEFAULT_PAGE_SIZE), ADMIN_MAX_PAGE_SIZE);
     const where = buildWhere(searchParams);
 
     const [items, total] = await Promise.all([
@@ -86,7 +87,13 @@ export async function GET(request: Request) {
     });
 
     return NextResponse.json({
-      items,
+      items: items.map((item) => ({
+        ...item,
+        metadata:
+          item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
+            ? sanitizeLogMetadata(item.metadata as Record<string, unknown>)
+            : item.metadata,
+      })),
       pagination: {
         page,
         pageSize,
