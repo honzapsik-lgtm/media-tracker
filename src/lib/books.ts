@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { MediaItem } from '../types';
-import { readApiCache, writeApiCache } from '@/lib/api-cache';
+import { readApiCache, timeProviderFetch, writeApiCache } from '@/lib/api-cache';
 import { prisma } from '@/lib/prisma';
 const SEARCH_CACHE_TTL_SECONDS = 24 * 60 * 60;
 
@@ -16,10 +16,15 @@ export async function searchBooks(query: string): Promise<MediaItem[]> {
 
     const encodedQuery = encodeURIComponent(normalizedQuery);
     
-    const res = await fetch(
+    const res = await timeProviderFetch({
+      provider: "jikan",
+      cacheId,
+      operation: "jikan.search",
+      fetcher: () => fetch(
       `https://api.jikan.moe/v4/manga?q=${encodedQuery}&limit=10&order_by=popularity&sort=asc`,
       { next: { revalidate: 3600 } }
-    );
+      ),
+    });
 
     if (!res.ok) return [];
 
@@ -53,10 +58,15 @@ export async function getBookDetails(id: string) {
       return cached.data as any;
     }
 
-    const res = await fetch(
+    const res = await timeProviderFetch({
+      provider: "jikan",
+      cacheId,
+      operation: "jikan.details",
+      fetcher: () => fetch(
       `https://api.jikan.moe/v4/manga/${id}`,
       { next: { revalidate: 3600 } }
-    );
+      ),
+    });
 
     // Safety Net 1: Check if the response is OK
     if (!res.ok) {

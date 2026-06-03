@@ -6,6 +6,7 @@ const links = [
   ["Logs", "/admin/logs"],
   ["Cache", "/admin/cache"],
   ["Database", "/admin/database"],
+  ["Performance", "/admin/performance"],
 ];
 
 export function AdminNav() {

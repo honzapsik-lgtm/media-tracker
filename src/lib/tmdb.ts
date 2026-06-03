@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { MediaItem } from '@/types';
-import { readApiCache, writeApiCache } from '@/lib/api-cache';
+import { readApiCache, timeProviderFetch, writeApiCache } from '@/lib/api-cache';
 import { prisma } from '@/lib/prisma';
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
 const BASE_URL = 'https://api.themoviedb.org/3';
@@ -22,10 +22,15 @@ export async function getTrendingMovies(): Promise<MediaItem[]> {
 
   if (!TMDB_API_KEY) return [];
 
-  const res = await fetch(
+  const res = await timeProviderFetch({
+    provider: "tmdb",
+    cacheId,
+    operation: "tmdb.trending_movies",
+    fetcher: () => fetch(
     `${BASE_URL}/trending/movie/day?api_key=${TMDB_API_KEY}&language=en-US`,
     { next: { revalidate: 3600 } }
-  );
+    ),
+  });
 
   if (!res.ok) throw new Error('Failed to fetch trending movies');
   const data = await res.json();
@@ -55,10 +60,15 @@ export async function searchTMDb(query: string): Promise<MediaItem[]> {
   if (!TMDB_API_KEY) throw new Error("TMDb API Key is missing");
 
   const encodedQuery = encodeURIComponent(normalizedQuery);
-  const res = await fetch(
+  const res = await timeProviderFetch({
+    provider: "tmdb",
+    cacheId,
+    operation: "tmdb.search",
+    fetcher: () => fetch(
     `${BASE_URL}/search/multi?api_key=${TMDB_API_KEY}&query=${encodedQuery}&language=en-US&page=1`,
     { next: { revalidate: 3600 } }
-  );
+    ),
+  });
 
   if (!res.ok) throw new Error('Failed to search TMDb');
   const data = await res.json();
@@ -89,10 +99,15 @@ export async function getTMDbDetails(id: string, type: 'movie' | 'tv') {
 
   if (!TMDB_API_KEY) throw new Error("TMDb API Key is missing");
 
-  const res = await fetch(
+  const res = await timeProviderFetch({
+    provider: "tmdb",
+    cacheId,
+    operation: "tmdb.details",
+    fetcher: () => fetch(
     `${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}&language=en-US&append_to_response=credits,videos`,
     { next: { revalidate: 3600 } }
-  );
+    ),
+  });
 
   if (!res.ok) return null;
   const data = await res.json();

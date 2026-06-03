@@ -75,7 +75,7 @@ export default async function AdminPage() {
           <span className="font-bold text-white">{admin.name || admin.email || admin.id}</span>
         </div>
 
-        <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
           <Link href="/admin/jobs" className="rounded-lg border border-blue-500/40 bg-blue-900/20 p-5 transition-colors hover:border-blue-400">
             <h2 className="mb-4 font-black text-gray-100">Background Jobs</h2>
             <dl className="space-y-2 text-sm">
@@ -113,6 +113,15 @@ export default async function AdminPage() {
               <div className="flex justify-between"><dt className="text-gray-500">Ratings</dt><dd className="font-bold">{overview.database.ratings}</dd></div>
               <div className="flex justify-between"><dt className="text-gray-500">Watchlist</dt><dd className="font-bold">{overview.database.watchlistEntries}</dd></div>
               <div className="flex justify-between"><dt className="text-gray-500">Media stats</dt><dd className="font-bold">{overview.database.mediaStatsRows}</dd></div>
+            </dl>
+          </Link>
+
+          <Link href="/admin/performance" className="rounded-lg border border-blue-500/40 bg-blue-900/20 p-5 transition-colors hover:border-blue-400">
+            <h2 className="mb-4 font-black text-gray-100">Performance</h2>
+            <dl className="space-y-2 text-sm">
+              <div className="flex justify-between"><dt className="text-gray-500">Slow 1h</dt><dd className="font-bold text-amber-300">{overview.performance.lastHour}</dd></div>
+              <div className="flex justify-between"><dt className="text-gray-500">Slow 24h</dt><dd className="font-bold">{overview.performance.last24Hours}</dd></div>
+              <div className="flex justify-between"><dt className="text-gray-500">Slowest 24h</dt><dd className="font-bold">{overview.performance.slowestLast24Hours?.durationMs ? `${overview.performance.slowestLast24Hours.durationMs}ms` : "-"}</dd></div>
             </dl>
           </Link>
         </div>

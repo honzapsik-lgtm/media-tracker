@@ -2,7 +2,7 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { readApiCache, writeApiCache } from "@/lib/api-cache";
+import { readApiCache, timeProviderFetch, writeApiCache } from "@/lib/api-cache";
 
 export interface DiscoverMediaItem {
   id: string;
@@ -141,7 +141,12 @@ export async function discoverMedia(
       // Keep response small-ish.
       url.searchParams.set("page", "1");
 
-      const res = await fetch(url.toString(), { next: { revalidate: 3600 } });
+      const res = await timeProviderFetch({
+        provider: "tmdb",
+        cacheId,
+        operation: "tmdb.discover",
+        fetcher: () => fetch(url.toString(), { next: { revalidate: 3600 } }),
+      });
       if (!res.ok) return [];
       const data: any = await res.json();
 
@@ -200,7 +205,12 @@ export async function discoverMedia(
       // RAWG expects ordering such as "-rating" or "released".
       if (sort) url.searchParams.set("ordering", sort);
 
-      const res = await fetch(url.toString(), { cache: "no-store" });
+      const res = await timeProviderFetch({
+        provider: "rawg",
+        cacheId,
+        operation: "rawg.discover",
+        fetcher: () => fetch(url.toString(), { cache: "no-store" }),
+      });
       if (!res.ok) return [];
       const data: any = await res.json();
       const results: any[] = Array.isArray(data?.results) ? data.results : [];
@@ -249,7 +259,12 @@ export async function discoverMedia(
         url.searchParams.set("end_date", `${yearOk}-12-31`);
       }
 
-      const res = await fetch(url.toString(), { next: { revalidate: 3600 } });
+      const res = await timeProviderFetch({
+        provider: "jikan",
+        cacheId,
+        operation: "jikan.discover",
+        fetcher: () => fetch(url.toString(), { next: { revalidate: 3600 } }),
+      });
       if (!res.ok) return [];
 
       const data: any = await res.json();

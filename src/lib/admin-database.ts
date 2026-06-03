@@ -1,5 +1,6 @@
-import { ADMIN_STUCK_JOB_MINUTES } from "@/lib/admin-constants";
+import { ADMIN_STUCK_JOB_MINUTES, PERF_WARN_THRESHOLD_MS } from "@/lib/admin-constants";
 import { JOB_STATUS } from "@/lib/jobs";
+import { timeOperation } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 
 export type IntegrityCheckResult = {
@@ -136,6 +137,14 @@ export async function getMediaStatsMismatchCount() {
 }
 
 export async function runDatabaseIntegrityChecks(): Promise<IntegrityCheckResult[]> {
+  return timeOperation({
+    event: "admin.database.integrity_checks",
+    slowThresholdMs: PERF_WARN_THRESHOLD_MS,
+    metadata: { source: "runDatabaseIntegrityChecks" },
+  }, async () => runDatabaseIntegrityChecksData());
+}
+
+async function runDatabaseIntegrityChecksData(): Promise<IntegrityCheckResult[]> {
   const now = new Date();
   const stuckCutoff = new Date(Date.now() - ADMIN_STUCK_JOB_MINUTES * 60 * 1000);
   const oldFailedCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -157,6 +166,7 @@ export async function runDatabaseIntegrityChecks(): Promise<IntegrityCheckResult
     oldExpiredCacheEntries,
     recentSystemErrors,
     oldSystemLogs,
+    recentSlowOperations,
   ] = await Promise.all([
     prisma.userRating.count({ where: { OR: [{ score: { lt: 0 } }, { score: { gt: 100 } }] } }),
     prisma.userRating.count({ where: { OR: [{ media_title: null }, { media_title: "" }] } }),
@@ -183,6 +193,7 @@ export async function runDatabaseIntegrityChecks(): Promise<IntegrityCheckResult
     prisma.apiCache.count({ where: { expires_at: { lt: oldExpiredCutoff } } }),
     prisma.systemLog.count({ where: { level: "error", createdAt: { gte: dayAgo } } }),
     prisma.systemLog.count({ where: { createdAt: { lt: oldLogCutoff } } }),
+    prisma.systemLog.count({ where: { event: "performance.slow_operation", createdAt: { gte: dayAgo } } }),
   ]);
 
   return [
@@ -296,6 +307,15 @@ export async function runDatabaseIntegrityChecks(): Promise<IntegrityCheckResult
       "No SystemLog rows are older than 30 days.",
       `${oldSystemLogs} SystemLog rows are older than 30 days. Consider a future retention policy.`,
       "/admin/logs"
+    ),
+    checkResult(
+      "recent_slow_operations",
+      "Recent slow operations",
+      recentSlowOperations,
+      "warning",
+      "No slow operations were recorded in the last 24 hours.",
+      `${recentSlowOperations} slow operations were recorded in the last 24 hours.`,
+      "/admin/performance"
     ),
   ];
 }

@@ -68,6 +68,12 @@ The app currently uses external media APIs for catalog data and a local PostgreS
   - `SystemLog` metadata is sanitized before writing and before admin display.
   - Admin health returns a timestamp and lightweight database reachability.
   - Database integrity checks include a SystemLog retention warning for rows older than 30 days.
+- **Admin Diagnostics Phase 4**: Lightweight performance diagnostics record slow internal operations.
+  - Slow operations are stored in `SystemLog` as `performance.slow_operation`.
+  - `/admin/performance` shows recent slow operations, top repeated operations, and the slowest operation from the last 24 hours.
+  - `/api/admin/performance` returns admin-only paginated slow-operation JSON.
+  - Instrumented areas include global rankings, rating mutations, watchlist mutations, provider fetch/cache operations, user-stat cache updates, admin overview, and database integrity checks.
+  - This is internal diagnostics, not a replacement for full production APM or distributed tracing.
 
 ## Main Technologies
 
@@ -95,6 +101,7 @@ The app currently uses external media APIs for catalog data and a local PostgreS
 - `src/lib/admin-overview.ts` - Admin overview summary and warning aggregation helper.
 - `src/lib/admin-cache.ts` - Admin provider cache summaries, pagination, and expired-cache cleanup.
 - `src/lib/admin-database.ts` - Database summaries and read-only integrity checks.
+- `src/lib/admin-performance.ts` - Admin slow-operation summaries and pagination helpers.
 - `src/lib/prisma.ts` - Prisma client setup with the PostgreSQL adapter.
 - `src/lib/api-cache.ts` - Shared PostgreSQL cache helper for external provider results.
 - `src/lib/db-wipe.ts` - Shared local app-data wipe helper used by the CLI script and debug API route.
@@ -104,6 +111,8 @@ The app currently uses external media APIs for catalog data and a local PostgreS
 - `src/app/api/admin/logs/route.ts` - Admin-only paginated system logs endpoint.
 - `src/app/api/admin/cache/*` - Admin-only cache summary, listing, and expired-entry cleanup endpoints.
 - `src/app/api/admin/database/*` - Admin-only database summary and integrity-check endpoints.
+- `src/app/admin/performance/page.tsx` - Admin-only slow-operation diagnostics page.
+- `src/app/api/admin/performance/route.ts` - Admin-only slow-operation diagnostics endpoint.
 - `src/app/api/debug/wipe-db/route.ts` - Development-only debug endpoint for clearing app data.
 - `scripts/nuke-db.ts` - CLI database wipe script that preserves auth users/sessions.
 - `scripts/make-admin.ts` and `scripts/make-user.ts` - Local role management scripts.
@@ -226,6 +235,9 @@ Role changes are intentionally script-only. There is no public UI for role editi
 | Worker not updating | `/admin/jobs` |
 | Recent unknown failure | `/admin/logs?level=error` |
 | DB/cache growing | `/admin/cache` and `/admin/database` |
+| Slow page or endpoint | `/admin/performance`, then `/admin/logs` |
+| Ranking slow | `/admin/performance?operation=ranking.get_ranked_media` |
+| Provider fetch/cache slow | `/admin/performance` and `/admin/cache` |
 
 ## Admin Safety Notes
 

@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { MediaItem } from '../types';
-import { readApiCache, writeApiCache } from '@/lib/api-cache';
+import { readApiCache, timeProviderFetch, writeApiCache } from '@/lib/api-cache';
 import { prisma } from '@/lib/prisma';
 const SEARCH_CACHE_TTL_SECONDS = 24 * 60 * 60;
 
@@ -16,10 +16,15 @@ export async function searchGames(query: string): Promise<MediaItem[]> {
   if (!RAWG_API_KEY) return []; // Silently fail if no key yet
 
   const encodedQuery = encodeURIComponent(normalizedQuery);
-  const res = await fetch(
+  const res = await timeProviderFetch({
+    provider: "rawg",
+    cacheId,
+    operation: "rawg.search",
+    fetcher: () => fetch(
     `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&search=${encodedQuery}&page_size=10`,
     { next: { revalidate: 3600 } }
-  );
+    ),
+  });
 
   if (!res.ok) return [];
   const data = await res.json();
@@ -47,10 +52,15 @@ export async function getGameDetails(id: string) {
   const RAWG_API_KEY = process.env.RAWG_API_KEY;
   if (!RAWG_API_KEY) throw new Error("RAWG API Key is missing");
 
-  const res = await fetch(
+  const res = await timeProviderFetch({
+    provider: "rawg",
+    cacheId,
+    operation: "rawg.details",
+    fetcher: () => fetch(
     `https://api.rawg.io/api/games/${id}?key=${RAWG_API_KEY}`,
     { next: { revalidate: 3600 } }
-  );
+    ),
+  });
 
   if (!res.ok) return null;
   const data = await res.json();

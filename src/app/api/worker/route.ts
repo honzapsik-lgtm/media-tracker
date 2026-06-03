@@ -1,13 +1,15 @@
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
+import { PERF_WARN_THRESHOLD_MS } from "@/lib/admin-constants";
 import { awardBadges, updateUserStatsCache } from "@/lib/media-db";
-import { appLog } from "@/lib/logger";
+import { appLog, timeOperation } from "@/lib/logger";
 import { claimPendingJobs, completeJob, failJob } from "@/lib/jobs";
 import { getOrCreateRequestId } from "@/lib/request-id";
 
 type JobPayload = {
   userId?: string;
   mediaType?: string;
+  reason?: string;
 };
 
 function createWorkerId() {
@@ -29,12 +31,25 @@ async function processJob(job: { id: string; type: string; payload: unknown }, r
 
   if (job.type === "award_badges") {
     if (!payload.userId) throw new Error("award_badges job requires userId");
-    await awardBadges(payload.userId);
+    await timeOperation({
+      event: "worker.job.award_badges",
+      requestId,
+      userId: payload.userId,
+      slowThresholdMs: PERF_WARN_THRESHOLD_MS,
+      metadata: { source: "processJob", workerId, jobId: job.id, reason: payload.reason },
+    }, () => awardBadges(payload.userId as string));
   } else if (job.type === "update_user_stats") {
     if (!payload.userId || !payload.mediaType) {
       throw new Error("update_user_stats job requires userId and mediaType");
     }
-    await updateUserStatsCache(payload.userId, payload.mediaType);
+    await timeOperation({
+      event: "worker.job.update_user_stats",
+      requestId,
+      userId: payload.userId,
+      mediaType: payload.mediaType,
+      slowThresholdMs: PERF_WARN_THRESHOLD_MS,
+      metadata: { source: "processJob", workerId, jobId: job.id, reason: payload.reason },
+    }, () => updateUserStatsCache(payload.userId as string, payload.mediaType as string, payload.reason));
   } else {
     throw new Error(`Unknown job type: ${job.type}`);
   }

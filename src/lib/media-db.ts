@@ -1,4 +1,6 @@
 import { Prisma } from "@prisma/client";
+import { PERF_WARN_THRESHOLD_MS } from "@/lib/admin-constants";
+import { timeOperation } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 
 export interface ProfileMediaItem {
@@ -46,28 +48,36 @@ export function formatProfileRating(row: {
 }
 
 export async function refreshMediaStats(mediaId: string, mediaType = inferMediaType(mediaId)) {
-  const aggregate = await prisma.userRating.aggregate({
-    where: { media_id: mediaId },
-    _avg: { score: true },
-    _count: { score: true },
-  });
+  await timeOperation({
+    event: "media_stats.refresh",
+    mediaId,
+    mediaType,
+    slowThresholdMs: PERF_WARN_THRESHOLD_MS,
+    metadata: { source: "refreshMediaStats" },
+  }, async () => {
+    const aggregate = await prisma.userRating.aggregate({
+      where: { media_id: mediaId },
+      _avg: { score: true },
+      _count: { score: true },
+    });
 
-  const average = aggregate._avg.score == null ? 0 : Math.round(aggregate._avg.score);
-  const count = aggregate._count.score;
+    const average = aggregate._avg.score == null ? 0 : Math.round(aggregate._avg.score);
+    const count = aggregate._count.score;
 
-  await prisma.mediaStats.upsert({
-    where: { id: mediaId },
-    update: {
-      media_type: mediaType,
-      community_average: new Prisma.Decimal(average),
-      total_ratings: count,
-    },
-    create: {
-      id: mediaId,
-      media_type: mediaType,
-      community_average: new Prisma.Decimal(average),
-      total_ratings: count,
-    },
+    await prisma.mediaStats.upsert({
+      where: { id: mediaId },
+      update: {
+        media_type: mediaType,
+        community_average: new Prisma.Decimal(average),
+        total_ratings: count,
+      },
+      create: {
+        id: mediaId,
+        media_type: mediaType,
+        community_average: new Prisma.Decimal(average),
+        total_ratings: count,
+      },
+    });
   });
 }
 
@@ -211,79 +221,92 @@ export async function getRankedMedia(
 
   const skip = (page - 1) * limit;
 
-  // 1. Fetch total count for pagination
-  const totalCount = sort === "list_rank"
-    ? await prisma.$queryRaw<{count: number | bigint}[]>`
-        SELECT COUNT(DISTINCT s.id) as count
-        FROM media_stats s
-        INNER JOIN user_ratings r ON s.id = r.media_id
-        WHERE s.media_type = ${mediaType} AND r.rank_position IS NOT NULL
-      `.then(res => Number(res[0].count))
-    : await prisma.mediaStats.count({
-        where: { media_type: mediaType },
-      });
-
-  const orderByClause = sort === "community" 
-    ? Prisma.sql`ORDER BY community_average DESC NULLS LAST, total_ratings DESC NULLS LAST` 
-    : sort === "popular"
-    ? Prisma.sql`ORDER BY total_ratings DESC NULLS LAST, community_average DESC NULLS LAST`
-    : Prisma.sql`ORDER BY list_rank ASC`;
-
-  // 2. Perform global sort via raw SQL CTE
-  const query = sort === "list_rank" 
-    ? Prisma.sql`
-        WITH global_rankings AS (
-          SELECT 
-            s.id AS media_id,
-            s.media_type,
-            s.community_average,
-            s.total_ratings,
-            MAX(r.media_title) AS title,
-            MAX(r.media_image) AS image,
-            AVG(r.rank_position) AS average_rank,
-            RANK() OVER (
-              ORDER BY 
-                AVG(r.rank_position) ASC NULLS LAST, 
-                s.community_average DESC NULLS LAST
-            ) as list_rank
+  const { totalCount, results } = await timeOperation({
+    event: "ranking.get_ranked_media",
+    mediaType,
+    slowThresholdMs: PERF_WARN_THRESHOLD_MS,
+    metadata: {
+      source: "getRankedMedia",
+      sortMode: sort,
+      page,
+      pageSize: limit,
+    },
+  }, async () => {
+    // 1. Fetch total count for pagination
+    const totalCount = sort === "list_rank"
+      ? await prisma.$queryRaw<{count: number | bigint}[]>`
+          SELECT COUNT(DISTINCT s.id) as count
           FROM media_stats s
-          LEFT JOIN user_ratings r ON s.id = r.media_id
-          WHERE s.media_type = ${mediaType}
-          GROUP BY s.id, s.media_type, s.community_average, s.total_ratings
-          HAVING AVG(r.rank_position) IS NOT NULL
-        )
-        SELECT * FROM global_rankings
-        ${orderByClause}
-        OFFSET ${skip}
-        LIMIT ${limit}
-      `
-    : Prisma.sql`
-        WITH global_rankings AS (
-          SELECT 
-            s.id AS media_id,
-            s.media_type,
-            s.community_average,
-            s.total_ratings,
-            MAX(r.media_title) AS title,
-            MAX(r.media_image) AS image,
-            AVG(r.rank_position) AS average_rank,
-            RANK() OVER (
-              ORDER BY 
-                AVG(r.rank_position) ASC NULLS LAST, 
-                s.community_average DESC NULLS LAST
-            ) as list_rank
-          FROM media_stats s
-          LEFT JOIN user_ratings r ON s.id = r.media_id
-          WHERE s.media_type = ${mediaType}
-          GROUP BY s.id, s.media_type, s.community_average, s.total_ratings
-        )
-        SELECT * FROM global_rankings
-        ${orderByClause}
-        OFFSET ${skip}
-        LIMIT ${limit}
-      `;
+          INNER JOIN user_ratings r ON s.id = r.media_id
+          WHERE s.media_type = ${mediaType} AND r.rank_position IS NOT NULL
+        `.then(res => Number(res[0].count))
+      : await prisma.mediaStats.count({
+          where: { media_type: mediaType },
+        });
 
-  const results = await prisma.$queryRaw<RankedMediaRow[]>(query);
+    const orderByClause = sort === "community" 
+      ? Prisma.sql`ORDER BY community_average DESC NULLS LAST, total_ratings DESC NULLS LAST` 
+      : sort === "popular"
+      ? Prisma.sql`ORDER BY total_ratings DESC NULLS LAST, community_average DESC NULLS LAST`
+      : Prisma.sql`ORDER BY list_rank ASC`;
+
+    // 2. Perform global sort via raw SQL CTE
+    const query = sort === "list_rank" 
+      ? Prisma.sql`
+          WITH global_rankings AS (
+            SELECT 
+              s.id AS media_id,
+              s.media_type,
+              s.community_average,
+              s.total_ratings,
+              MAX(r.media_title) AS title,
+              MAX(r.media_image) AS image,
+              AVG(r.rank_position) AS average_rank,
+              RANK() OVER (
+                ORDER BY 
+                  AVG(r.rank_position) ASC NULLS LAST, 
+                  s.community_average DESC NULLS LAST
+              ) as list_rank
+            FROM media_stats s
+            LEFT JOIN user_ratings r ON s.id = r.media_id
+            WHERE s.media_type = ${mediaType}
+            GROUP BY s.id, s.media_type, s.community_average, s.total_ratings
+            HAVING AVG(r.rank_position) IS NOT NULL
+          )
+          SELECT * FROM global_rankings
+          ${orderByClause}
+          OFFSET ${skip}
+          LIMIT ${limit}
+        `
+      : Prisma.sql`
+          WITH global_rankings AS (
+            SELECT 
+              s.id AS media_id,
+              s.media_type,
+              s.community_average,
+              s.total_ratings,
+              MAX(r.media_title) AS title,
+              MAX(r.media_image) AS image,
+              AVG(r.rank_position) AS average_rank,
+              RANK() OVER (
+                ORDER BY 
+                  AVG(r.rank_position) ASC NULLS LAST, 
+                  s.community_average DESC NULLS LAST
+              ) as list_rank
+            FROM media_stats s
+            LEFT JOIN user_ratings r ON s.id = r.media_id
+            WHERE s.media_type = ${mediaType}
+            GROUP BY s.id, s.media_type, s.community_average, s.total_ratings
+          )
+          SELECT * FROM global_rankings
+          ${orderByClause}
+          OFFSET ${skip}
+          LIMIT ${limit}
+        `;
+
+    const results = await prisma.$queryRaw<RankedMediaRow[]>(query);
+    return { totalCount, results };
+  });
 
   const formattedResults = results.map((row) => ({
     media_id: row.media_id,
@@ -302,18 +325,25 @@ export async function getRankedMedia(
   };
 }
 
-export async function updateUserStatsCache(userId: string, mediaType: string) {
-  // 1. Fetch user ratings to filter by mediaType
-  const ratings = await prisma.userRating.findMany({
-    where: { user_id: userId },
-  });
+export async function updateUserStatsCache(userId: string, mediaType: string, reason?: string) {
+  await timeOperation({
+    event: "user_stats_cache.update",
+    userId,
+    mediaType,
+    slowThresholdMs: PERF_WARN_THRESHOLD_MS,
+    metadata: { source: "updateUserStatsCache", reason },
+  }, async () => {
+    // 1. Fetch user ratings to filter by mediaType
+    const ratings = await prisma.userRating.findMany({
+      where: { user_id: userId },
+    });
 
-  const typeRatings = ratings.filter(r => inferMediaType(r.media_id) === mediaType);
+    const typeRatings = ratings.filter(r => inferMediaType(r.media_id) === mediaType);
 
-  // 2. Fetch user watchlist for this mediaType
-  const watchlist = await prisma.userWatchlist.findMany({
-    where: { user_id: userId, media_type: mediaType },
-  });
+    // 2. Fetch user watchlist for this mediaType
+    const watchlist = await prisma.userWatchlist.findMany({
+      where: { user_id: userId, media_type: mediaType },
+    });
 
   const total_count = typeRatings.length;
   let average_score = 0;
@@ -365,14 +395,15 @@ export async function updateUserStatsCache(userId: string, mediaType: string) {
     status_counts
   };
 
-  await prisma.userStatsCache.upsert({
-    where: { user_id_media_type: { user_id: userId, media_type: mediaType } },
-    update: { stats_json: stats_json as Prisma.InputJsonValue },
-    create: {
-      user_id: userId,
-      media_type: mediaType,
-      stats_json: stats_json as Prisma.InputJsonValue,
-    }
+    await prisma.userStatsCache.upsert({
+      where: { user_id_media_type: { user_id: userId, media_type: mediaType } },
+      update: { stats_json: stats_json as Prisma.InputJsonValue },
+      create: {
+        user_id: userId,
+        media_type: mediaType,
+        stats_json: stats_json as Prisma.InputJsonValue,
+      }
+    });
   });
 }
 

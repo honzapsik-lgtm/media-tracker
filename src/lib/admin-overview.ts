@@ -1,8 +1,10 @@
 import { getCacheSummary } from "@/lib/admin-cache";
-import { ADMIN_STUCK_JOB_MINUTES } from "@/lib/admin-constants";
+import { ADMIN_STUCK_JOB_MINUTES, PERF_SLOW_THRESHOLD_MS, PERF_WARN_THRESHOLD_MS } from "@/lib/admin-constants";
 import { getMediaStatsMismatchCount, getUsersMissingStatsCacheCount } from "@/lib/admin-database";
 import { getJobSummary } from "@/lib/admin-jobs";
+import { getPerformanceSummary } from "@/lib/admin-performance";
 import { JOB_STATUS } from "@/lib/jobs";
+import { timeOperation } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 
 export type AdminOverviewWarning = {
@@ -13,6 +15,14 @@ export type AdminOverviewWarning = {
 };
 
 export async function getAdminOverview() {
+  return timeOperation({
+    event: "admin.overview.load",
+    slowThresholdMs: PERF_WARN_THRESHOLD_MS,
+    metadata: { source: "getAdminOverview" },
+  }, async () => getAdminOverviewData());
+}
+
+async function getAdminOverviewData() {
   const now = Date.now();
   const hourAgo = new Date(now - 60 * 60 * 1000);
   const dayAgo = new Date(now - 24 * 60 * 60 * 1000);
@@ -37,6 +47,7 @@ export async function getAdminOverview() {
     cancelledJobs,
     usersMissingStatsCache,
     mediaStatsInconsistencies,
+    performance,
   ] = await Promise.all([
     getJobSummary(),
     getCacheSummary(),
@@ -68,6 +79,7 @@ export async function getAdminOverview() {
     prisma.backgroundJob.count({ where: { status: JOB_STATUS.CANCELLED } }),
     getUsersMissingStatsCacheCount(),
     getMediaStatsMismatchCount(),
+    getPerformanceSummary(),
   ]);
 
   const warnings: AdminOverviewWarning[] = [];
@@ -135,6 +147,24 @@ export async function getAdminOverview() {
     });
   }
 
+  if (performance.lastHour > 0) {
+    warnings.push({
+      severity: "warning",
+      label: "Slow operations detected",
+      detail: `${performance.lastHour} slow operations were logged in the last hour.`,
+      href: "/admin/performance?sinceHours=1",
+    });
+  }
+
+  if ((performance.slowestLast24Hours?.durationMs ?? 0) >= PERF_SLOW_THRESHOLD_MS) {
+    warnings.push({
+      severity: "error",
+      label: "Very slow operation",
+      detail: `${performance.slowestLast24Hours?.operation ?? "unknown"} took ${performance.slowestLast24Hours?.durationMs}ms.`,
+      href: "/admin/performance?sinceHours=24",
+    });
+  }
+
   return {
     jobs: {
       ...jobs,
@@ -159,6 +189,7 @@ export async function getAdminOverview() {
       systemLogCount,
       backgroundJobCount,
     },
+    performance,
     warnings,
   };
 }

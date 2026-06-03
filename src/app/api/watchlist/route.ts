@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+import { PERF_WARN_THRESHOLD_MS } from "@/lib/admin-constants";
 import { authOptions } from "@/lib/auth";
 import { enqueueJob } from "@/lib/jobs";
 import { inferMediaType } from "@/lib/media-db";
+import { timeOperation } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { getOrCreateRequestId } from "@/lib/request-id";
 
@@ -68,25 +70,40 @@ export async function POST(request: Request) {
   }
 
   const mediaType = body.type || inferMediaType(body.mediaId);
-  const item = await prisma.userWatchlist.upsert({
-    where: { user_id_media_id: { user_id: session.user.id, media_id: body.mediaId } },
-    update: {
-      media_title: body.title,
-      media_image: body.image ?? null,
-      media_type: mediaType,
+  const item = await timeOperation({
+    event: "watchlist.mutation",
+    requestId,
+    userId: session.user.id,
+    mediaId: body.mediaId,
+    mediaType,
+    slowThresholdMs: PERF_WARN_THRESHOLD_MS,
+    metadata: {
+      source: "watchlist.POST",
+      action: "add_or_update",
       status: body.status ?? "plan_to_watch",
     },
-    create: {
-      user_id: session.user.id,
-      media_id: body.mediaId,
-      media_title: body.title,
-      media_image: body.image ?? null,
-      media_type: mediaType,
-      status: body.status ?? "plan_to_watch",
-    },
-  });
+  }, async () => {
+    const item = await prisma.userWatchlist.upsert({
+      where: { user_id_media_id: { user_id: session.user.id, media_id: body.mediaId as string } },
+      update: {
+        media_title: body.title,
+        media_image: body.image ?? null,
+        media_type: mediaType,
+        status: body.status ?? "plan_to_watch",
+      },
+      create: {
+        user_id: session.user.id,
+        media_id: body.mediaId as string,
+        media_title: body.title,
+        media_image: body.image ?? null,
+        media_type: mediaType,
+        status: body.status ?? "plan_to_watch",
+      },
+    });
 
-  await queueUserStatsUpdate(session.user.id, body.mediaId, requestId, mediaType);
+    await queueUserStatsUpdate(session.user.id, body.mediaId as string, requestId, mediaType);
+    return item;
+  });
 
   return NextResponse.json(item);
 }
@@ -103,10 +120,22 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "mediaId and status are required" }, { status: 400 });
   }
 
-  const item = await prisma.userWatchlist.update({
-    where: { user_id_media_id: { user_id: session.user.id, media_id: body.mediaId } },
+  const item = await timeOperation({
+    event: "watchlist.mutation",
+    requestId,
+    userId: session.user.id,
+    mediaId: body.mediaId,
+    mediaType: body.type || inferMediaType(body.mediaId),
+    slowThresholdMs: PERF_WARN_THRESHOLD_MS,
+    metadata: {
+      source: "watchlist.PATCH",
+      action: "update",
+      status: body.status,
+    },
+  }, async () => prisma.userWatchlist.update({
+    where: { user_id_media_id: { user_id: session.user.id, media_id: body.mediaId as string } },
     data: { status: body.status },
-  });
+  }));
 
   await queueUserStatsUpdate(session.user.id, item.media_id, requestId, item.media_type);
 
@@ -126,18 +155,31 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "mediaId is required" }, { status: 400 });
   }
 
-  const existingItem = await prisma.userWatchlist.findUnique({
-    where: { user_id_media_id: { user_id: session.user.id, media_id: mediaId } },
-    select: { media_type: true },
-  });
+  await timeOperation({
+    event: "watchlist.mutation",
+    requestId,
+    userId: session.user.id,
+    mediaId,
+    mediaType: inferMediaType(mediaId),
+    slowThresholdMs: PERF_WARN_THRESHOLD_MS,
+    metadata: {
+      source: "watchlist.DELETE",
+      action: "remove",
+    },
+  }, async () => {
+    const existingItem = await prisma.userWatchlist.findUnique({
+      where: { user_id_media_id: { user_id: session.user.id, media_id: mediaId } },
+      select: { media_type: true },
+    });
 
-  const result = await prisma.userWatchlist.deleteMany({
-    where: { user_id: session.user.id, media_id: mediaId },
-  });
+    const result = await prisma.userWatchlist.deleteMany({
+      where: { user_id: session.user.id, media_id: mediaId },
+    });
 
-  if (result.count > 0) {
-    await queueUserStatsUpdate(session.user.id, mediaId, requestId, existingItem?.media_type);
-  }
+    if (result.count > 0) {
+      await queueUserStatsUpdate(session.user.id, mediaId, requestId, existingItem?.media_type);
+    }
+  });
 
   return NextResponse.json({ ok: true });
 }
