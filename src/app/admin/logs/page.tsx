@@ -196,8 +196,24 @@ export default async function AdminLogsPage({
                       )}
                     </td>
                     <td className="px-4 py-3 text-gray-500">{log.requestId ?? "-"}</td>
-                    <td className="px-4 py-3 text-gray-500">{log.userId ?? "-"}</td>
-                    <td className="px-4 py-3 text-gray-500">{log.mediaId ?? "-"}</td>
+                    <td className="px-4 py-3 text-gray-500">
+                      {log.userId ? (
+                        <Link href={`/admin/users/${log.userId}`} className="text-blue-400 hover:text-blue-300 hover:underline">
+                          {log.userId}
+                        </Link>
+                      ) : (
+                        "-"
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-gray-500">
+                      {log.mediaId ? (
+                        <Link href={`/admin/media/${log.mediaId}`} className="text-blue-400 hover:text-blue-300 hover:underline">
+                          {log.mediaId}
+                        </Link>
+                      ) : (
+                        "-"
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-gray-500">{log.jobId ?? "-"}</td>
                     <td className="px-4 py-3 text-gray-500">{log.durationMs != null ? `${log.durationMs}ms` : "-"}</td>
                   </tr>

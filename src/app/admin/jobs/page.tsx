@@ -197,7 +197,35 @@ export default async function AdminJobsPage({
                       <div>{job.type}</div>
                       <details className="mt-2">
                         <summary className="cursor-pointer text-xs text-gray-500">Payload</summary>
-                        <pre className="mt-2 max-w-xs whitespace-pre-wrap rounded bg-gray-900 p-2 text-xs text-gray-500">{JSON.stringify(job.payload, null, 2)}</pre>
+                        <div className="mt-2 max-w-xs rounded bg-gray-900 p-2 text-xs text-gray-500 space-y-1">
+                          {job.payload && typeof job.payload === 'object' ? (
+                            Object.entries(job.payload as Record<string, any>).map(([k, v]) => {
+                              if (k === 'userId' && typeof v === 'string') {
+                                return (
+                                  <div key={k} className="break-all">
+                                    <span className="font-bold text-gray-400">{k}:</span>{" "}
+                                    <Link href={`/admin/users/${v}`} className="text-blue-400 hover:text-blue-300 hover:underline">{v}</Link>
+                                  </div>
+                                );
+                              }
+                              if (k === 'mediaId' && typeof v === 'string') {
+                                return (
+                                  <div key={k} className="break-all">
+                                    <span className="font-bold text-gray-400">{k}:</span>{" "}
+                                    <Link href={`/admin/media/${v}`} className="text-blue-400 hover:text-blue-300 hover:underline">{v}</Link>
+                                  </div>
+                                );
+                              }
+                              return (
+                                <div key={k} className="break-all">
+                                  <span className="font-bold text-gray-400">{k}:</span> {JSON.stringify(v)}
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <pre className="whitespace-pre-wrap">{JSON.stringify(job.payload, null, 2)}</pre>
+                          )}
+                        </div>
                       </details>
                     </td>
                     <td className="px-4 py-3">

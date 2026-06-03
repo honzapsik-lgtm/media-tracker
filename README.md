@@ -74,6 +74,11 @@ The app currently uses external media APIs for catalog data and a local PostgreS
   - `/api/admin/performance` returns admin-only paginated slow-operation JSON.
   - Instrumented areas include global rankings, rating mutations, watchlist mutations, provider fetch/cache operations, user-stat cache updates, admin overview, and database integrity checks.
   - This is internal diagnostics, not a replacement for full production APM or distributed tracing.
+- **Admin Diagnostics Phase 5**: Deep drill-downs for specific Users and Media.
+  - `/admin/users` and `/admin/media` provide search forms to look up specific entities by ID.
+  - `/admin/users/[userId]` shows the user's core details, stats cache JSON, background jobs, and system logs, with actions to recalculate stats and toggle admin roles.
+  - `/admin/media/[mediaId]` shows database engagement counts, potential `media_stats` data drift warnings, full cache payload tree inspection, and related historical logs. Admins can flush the cache tree or recalculate community stats.
+  - `userId` and `mediaId` values are globally linked across the `/admin/logs` and `/admin/jobs` tables to create a deeply cohesive debugging environment.
 
 ## Main Technologies
 

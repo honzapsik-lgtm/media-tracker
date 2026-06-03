@@ -61,7 +61,7 @@ export default async function AdminPage() {
 
   return (
     <main className="min-h-screen bg-gray-950 text-white px-8 pb-16 pt-24">
-      <div className="mx-auto max-w-6xl">
+      <div className="mx-auto max-w-7xl">
         <AdminNav />
         <p className="mb-2 text-xs font-black uppercase tracking-widest text-blue-400">
           Internal
@@ -75,7 +75,7 @@ export default async function AdminPage() {
           <span className="font-bold text-white">{admin.name || admin.email || admin.id}</span>
         </div>
 
-        <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Link href="/admin/jobs" className="rounded-lg border border-blue-500/40 bg-blue-900/20 p-5 transition-colors hover:border-blue-400">
             <h2 className="mb-4 font-black text-gray-100">Background Jobs</h2>
             <dl className="space-y-2 text-sm">
@@ -123,6 +123,20 @@ export default async function AdminPage() {
               <div className="flex justify-between"><dt className="text-gray-500">Slow 24h</dt><dd className="font-bold">{overview.performance.last24Hours}</dd></div>
               <div className="flex justify-between"><dt className="text-gray-500">Slowest 24h</dt><dd className="font-bold">{overview.performance.slowestLast24Hours?.durationMs ? `${overview.performance.slowestLast24Hours.durationMs}ms` : "-"}</dd></div>
             </dl>
+          </Link>
+
+          <Link href="/admin/users" className="rounded-lg border border-blue-500/40 bg-blue-900/20 p-5 transition-colors hover:border-blue-400">
+            <h2 className="mb-4 font-black text-gray-100">User Lookup</h2>
+            <p className="text-sm text-gray-400">
+              Enter a User ID to view their logs, background jobs, cache records, and manage their role.
+            </p>
+          </Link>
+
+          <Link href="/admin/media" className="rounded-lg border border-blue-500/40 bg-blue-900/20 p-5 transition-colors hover:border-blue-400">
+            <h2 className="mb-4 font-black text-gray-100">Media Lookup</h2>
+            <p className="text-sm text-gray-400">
+              Enter a Media ID to inspect provider cache data, force cache clears, and debug tracking stats.
+            </p>
           </Link>
         </div>
 
