@@ -69,8 +69,10 @@ export default async function AdminPage() {
               </>
             );
 
-            return card === "Logs" ? (
-              <Link key={card} href="/admin/logs" className="rounded-lg border border-blue-500/40 bg-blue-900/20 p-5 transition-colors hover:border-blue-400">
+            const href = card === "Logs" ? "/admin/logs" : card === "Background Jobs" ? "/admin/jobs" : null;
+
+            return href ? (
+              <Link key={card} href={href} className="rounded-lg border border-blue-500/40 bg-blue-900/20 p-5 transition-colors hover:border-blue-400">
                 {content}
               </Link>
             ) : (

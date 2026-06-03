@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { enqueueJob } from "@/lib/jobs";
 import { inferMediaType } from "@/lib/media-db";
 import { prisma } from "@/lib/prisma";
+import { getOrCreateRequestId } from "@/lib/request-id";
 
 type WatchlistBody = {
   mediaId?: string;
@@ -12,15 +14,21 @@ type WatchlistBody = {
   status?: string;
 };
 
-async function queueUserStatsUpdate(userId: string, mediaId: string, mediaType?: string | null) {
-  await prisma.backgroundJob.create({
-    data: {
-      type: "update_user_stats",
-      payload: {
-        userId,
-        mediaType: mediaType || inferMediaType(mediaId),
-      },
+async function queueUserStatsUpdate(
+  userId: string,
+  mediaId: string,
+  requestId: string,
+  mediaType?: string | null
+) {
+  await enqueueJob({
+    type: "update_user_stats",
+    payload: {
+      userId,
+      mediaType: mediaType || inferMediaType(mediaId),
+      reason: "watchlist_changed",
     },
+    dedupeKey: `update_user_stats:${userId}`,
+    requestId,
   });
 }
 
@@ -48,6 +56,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const requestId = getOrCreateRequestId(request.headers);
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "You must be logged in to track media." }, { status: 401 });
@@ -77,12 +86,13 @@ export async function POST(request: Request) {
     },
   });
 
-  await queueUserStatsUpdate(session.user.id, body.mediaId, mediaType);
+  await queueUserStatsUpdate(session.user.id, body.mediaId, requestId, mediaType);
 
   return NextResponse.json(item);
 }
 
 export async function PATCH(request: Request) {
+  const requestId = getOrCreateRequestId(request.headers);
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "You must be logged in." }, { status: 401 });
@@ -98,12 +108,13 @@ export async function PATCH(request: Request) {
     data: { status: body.status },
   });
 
-  await queueUserStatsUpdate(session.user.id, item.media_id, item.media_type);
+  await queueUserStatsUpdate(session.user.id, item.media_id, requestId, item.media_type);
 
   return NextResponse.json(item);
 }
 
 export async function DELETE(request: Request) {
+  const requestId = getOrCreateRequestId(request.headers);
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "You must be logged in." }, { status: 401 });
@@ -125,7 +136,7 @@ export async function DELETE(request: Request) {
   });
 
   if (result.count > 0) {
-    await queueUserStatsUpdate(session.user.id, mediaId, existingItem?.media_type);
+    await queueUserStatsUpdate(session.user.id, mediaId, requestId, existingItem?.media_type);
   }
 
   return NextResponse.json({ ok: true });

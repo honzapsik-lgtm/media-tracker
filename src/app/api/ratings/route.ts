@@ -3,9 +3,10 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { Prisma } from "@prisma/client";
 import { authOptions } from "@/lib/auth";
+import { enqueueJob } from "@/lib/jobs";
 import { prisma } from "@/lib/prisma";
+import { getOrCreateRequestId } from "@/lib/request-id";
 import {
-  awardBadges,
   calculateCriteriaAverages,
   inferMediaType,
   refreshMediaStats,
@@ -50,6 +51,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const requestId = getOrCreateRequestId(request.headers);
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "You must be logged in to rate media." }, { status: 401 });
@@ -92,23 +94,25 @@ export async function POST(request: Request) {
   await refreshMediaStats(body.mediaId, mediaType);
   revalidatePath(`/media/${body.mediaId}`);
 
-  await prisma.backgroundJob.createMany({
-    data: [
-      {
-        type: "award_badges",
-        payload: { userId: session.user.id },
-      },
-      {
-        type: "update_user_stats",
-        payload: { userId: session.user.id, mediaType },
-      }
-    ],
-  });
+  await Promise.all([
+    enqueueJob({
+      type: "award_badges",
+      payload: { userId: session.user.id, reason: "rating_saved" },
+      requestId,
+    }),
+    enqueueJob({
+      type: "update_user_stats",
+      payload: { userId: session.user.id, mediaType, reason: "rating_saved" },
+      dedupeKey: `update_user_stats:${session.user.id}`,
+      requestId,
+    }),
+  ]);
 
   return NextResponse.json({ ok: true });
 }
 
 export async function DELETE(request: Request) {
+  const requestId = getOrCreateRequestId(request.headers);
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "You must be logged in." }, { status: 401 });
@@ -128,13 +132,11 @@ export async function DELETE(request: Request) {
   await refreshMediaStats(mediaId, mediaType);
   revalidatePath(`/media/${mediaId}`);
 
-  await prisma.backgroundJob.createMany({
-    data: [
-      {
-        type: "update_user_stats",
-        payload: { userId: session.user.id, mediaType },
-      }
-    ],
+  await enqueueJob({
+    type: "update_user_stats",
+    payload: { userId: session.user.id, mediaType, reason: "rating_deleted" },
+    dedupeKey: `update_user_stats:${session.user.id}`,
+    requestId,
   });
 
   return NextResponse.json({ ok: true });

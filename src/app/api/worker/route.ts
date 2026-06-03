@@ -1,72 +1,120 @@
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { awardBadges, updateUserStatsCache } from "@/lib/media-db";
+import { appLog } from "@/lib/logger";
+import { claimPendingJobs, completeJob, failJob } from "@/lib/jobs";
+import { getOrCreateRequestId } from "@/lib/request-id";
 
-export async function POST(request: Request) {
-  // 1. Fetch pending jobs
-  const jobs = await prisma.backgroundJob.findMany({
-    where: { status: "pending" },
-    take: 50,
-    orderBy: { created_at: "asc" }
+type JobPayload = {
+  userId?: string;
+  mediaType?: string;
+};
+
+function createWorkerId() {
+  return `worker_${crypto.randomUUID()}`;
+}
+
+async function processJob(job: { id: string; type: string; payload: unknown }, requestId: string, workerId: string) {
+  const payload = job.payload as JobPayload;
+
+  await appLog({
+    level: "info",
+    event: "job.started",
+    requestId,
+    jobId: job.id,
+    userId: payload.userId,
+    metadata: { type: job.type, workerId },
+    persist: true,
   });
 
-  if (jobs.length === 0) {
-    return NextResponse.json({ message: "No pending jobs." });
+  if (job.type === "award_badges") {
+    if (!payload.userId) throw new Error("award_badges job requires userId");
+    await awardBadges(payload.userId);
+  } else if (job.type === "update_user_stats") {
+    if (!payload.userId || !payload.mediaType) {
+      throw new Error("update_user_stats job requires userId and mediaType");
+    }
+    await updateUserStatsCache(payload.userId, payload.mediaType);
+  } else {
+    throw new Error(`Unknown job type: ${job.type}`);
   }
+}
 
-  const processedIds: string[] = [];
-  const failedIds: string[] = [];
+export async function processWorkerBatch({
+  requestId,
+  batchSize = 50,
+}: {
+  requestId: string;
+  batchSize?: number;
+}) {
+  const startedAt = performance.now();
+  const workerId = createWorkerId();
 
-  // 2. Process jobs
+  await appLog({
+    level: "info",
+    event: "worker.started",
+    requestId,
+    metadata: { workerId, batchSize },
+    persist: true,
+  });
+
+  const jobs = await claimPendingJobs({ workerId, batchSize });
+  let completed = 0;
+  let retried = 0;
+  let failed = 0;
+
   for (const job of jobs) {
     try {
-      const payload = job.payload as any;
-      if (job.type === "award_badges") {
-        await awardBadges(payload.userId);
-      } else if (job.type === "update_user_stats") {
-        await updateUserStatsCache(payload.userId, payload.mediaType);
-      }
-
-      processedIds.push(job.id);
+      await processJob(job, requestId, workerId);
+      await completeJob(job.id, requestId);
+      completed += 1;
     } catch (error) {
-      console.error(`Failed to process job ${job.id}:`, error);
-      failedIds.push(job.id);
+      const updated = await failJob(job.id, error, requestId);
+      if (updated.status === "pending") retried += 1;
+      else failed += 1;
     }
   }
 
-  // 3. Mark processed jobs as completed
-  if (processedIds.length > 0) {
-    await prisma.backgroundJob.updateMany({
-      where: { id: { in: processedIds } },
-      data: {
-        status: "completed",
-        processed_at: new Date()
-      }
-    });
+  if (jobs.length > 0) {
+    revalidatePath("/rankings");
+    revalidatePath("/profile");
   }
 
-  // Mark failed jobs as failed
-  if (failedIds.length > 0) {
-    await prisma.backgroundJob.updateMany({
-      where: { id: { in: failedIds } },
-      data: {
-        status: "failed",
-        processed_at: new Date()
-      }
-    });
-  }
+  const summary = {
+    ok: true,
+    workerId,
+    processed: jobs.length,
+    completed,
+    retried,
+    failed,
+  };
 
-  // Revalidate the global rankings cache so leaderboards update automatically
-  revalidatePath('/rankings');
-  // Revalidate profile so user stats are updated
-  revalidatePath('/profile');
-
-  return NextResponse.json({
-    message: "Processed background jobs.",
-    processedCount: processedIds.length,
-    failedCount: failedIds.length,
-    processedIds,
-    failedIds
+  await appLog({
+    level: "info",
+    event: "worker.completed",
+    requestId,
+    durationMs: Math.round(performance.now() - startedAt),
+    metadata: summary,
+    persist: true,
   });
+
+  return summary;
+}
+
+export async function POST(request: Request) {
+  const requestId = getOrCreateRequestId(request.headers);
+
+  try {
+    const summary = await processWorkerBatch({ requestId });
+    return NextResponse.json(summary);
+  } catch (error) {
+    await appLog({
+      level: "error",
+      event: "worker.failed",
+      requestId,
+      error,
+      persist: true,
+    });
+    return NextResponse.json({ ok: false, error: "WORKER_FAILED" }, { status: 500 });
+  }
 }

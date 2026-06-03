@@ -48,6 +48,13 @@ The app currently uses external media APIs for catalog data and a local PostgreS
   - `/api/admin/logs` returns paginated log JSON.
   - `/api/admin/health` records successful admin health checks.
   - Sensitive error stacks are not returned from the logs API in production.
+- **Admin Diagnostics Phase 2**: Background jobs now have inspectable lifecycle state and admin controls.
+  - `BackgroundJob` tracks pending, processing, completed, failed, and cancelled states.
+  - Jobs can be inspected at `/admin/jobs` and `/api/admin/jobs`.
+  - Worker/job lifecycle events are stored in `SystemLog`.
+  - `update_user_stats` jobs are deduped by user through `update_user_stats:<userId>`.
+  - Admins can retry failed jobs, cancel pending jobs, process a batch, mark stuck jobs failed, and clean up old completed/cancelled jobs.
+  - Cron and local worker polling still use `/api/worker`.
 
 ## Main Technologies
 
@@ -69,11 +76,14 @@ The app currently uses external media APIs for catalog data and a local PostgreS
 - `src/lib/admin-api.ts` - Shared admin API error response helpers.
 - `src/lib/logger.ts` - Structured console and persistent system log helper.
 - `src/lib/request-id.ts` - Request ID generation and header extraction helpers.
+- `src/lib/jobs.ts` - Background job enqueue, claim, retry, cancel, cleanup, and stuck-job helpers.
+- `src/lib/admin-jobs.ts` - Admin job filtering, pagination, serialization, and summary helpers.
 - `src/lib/prisma.ts` - Prisma client setup with the PostgreSQL adapter.
 - `src/lib/api-cache.ts` - Shared PostgreSQL cache helper for external provider results.
 - `src/lib/db-wipe.ts` - Shared local app-data wipe helper used by the CLI script and debug API route.
 - `src/lib/media-db.ts` - Database helpers for ratings, stats, badges, rankings, and profile data.
 - `src/app/api/admin/health/route.ts` - Admin-only health check endpoint.
+- `src/app/api/admin/jobs/route.ts` - Admin-only paginated jobs endpoint.
 - `src/app/api/admin/logs/route.ts` - Admin-only paginated system logs endpoint.
 - `src/app/api/debug/wipe-db/route.ts` - Development-only debug endpoint for clearing app data.
 - `scripts/nuke-db.ts` - CLI database wipe script that preserves auth users/sessions.
@@ -206,14 +216,15 @@ docker compose down
 
 ## Validation Status
 
-The current project state has been validated with:
+The current project state is validated with:
 
 ```bash
 npm run build
-npm run lint
+npx prisma generate
+npx prisma db push
 ```
 
-Lint currently passes with warnings about raw `<img>` usage. Those warnings are from Next.js image optimization guidance and do not block the build.
+Full `npm run lint` currently has pre-existing unrelated lint errors in older files. Targeted ESLint is run for touched files during admin diagnostics work.
 
 ## Notes
 

@@ -159,8 +159,22 @@ model BackgroundJob {
   type         String
   payload      Json
   status       String    @default("pending")
+  dedupe_key   String?
+  attempts     Int       @default(0)
+  max_attempts Int       @default(3)
+  run_at       DateTime  @default(now())
+  locked_at    DateTime?
+  locked_by    String?
+  last_error   String?
   created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
   processed_at DateTime?
+
+  @@index([status, run_at])
+  @@index([type, status])
+  @@index([locked_at])
+  @@index([dedupe_key])
+  @@index([created_at])
 }
 
 model SystemLog {
