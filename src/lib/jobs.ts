@@ -64,15 +64,51 @@ export async function enqueueJob(input: EnqueueJobInput) {
     }
   }
 
-  const job = await prisma.backgroundJob.create({
-    data: {
-      type: input.type,
-      payload: input.payload as Prisma.InputJsonObject,
-      dedupe_key: input.dedupeKey,
-      run_at: input.runAt ?? new Date(),
-      max_attempts: input.maxAttempts ?? 3,
-    },
-  });
+  let job;
+  try {
+    job = await prisma.backgroundJob.create({
+      data: {
+        type: input.type,
+        payload: input.payload as Prisma.InputJsonObject,
+        dedupe_key: input.dedupeKey,
+        run_at: input.runAt ?? new Date(),
+        max_attempts: input.maxAttempts ?? 3,
+      },
+    });
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002" &&
+      input.dedupeKey
+    ) {
+      const existing = await prisma.backgroundJob.findFirst({
+        where: {
+          dedupe_key: input.dedupeKey,
+          status: { in: [JOB_STATUS.PENDING, JOB_STATUS.PROCESSING] },
+        },
+        orderBy: { created_at: "desc" },
+      });
+
+      if (existing) {
+        await appLog({
+          level: "info",
+          event: "job.deduped",
+          requestId: input.requestId,
+          jobId: existing.id,
+          userId: payloadUserId(existing.payload),
+          metadata: {
+            type: existing.type,
+            status: existing.status,
+            dedupeKey: input.dedupeKey,
+            note: "Caught via unique constraint P2002",
+          },
+          persist: true,
+        });
+        return existing;
+      }
+    }
+    throw error;
+  }
 
   await appLog({
     level: "info",
