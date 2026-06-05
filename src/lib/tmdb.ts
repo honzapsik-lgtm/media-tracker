@@ -49,6 +49,39 @@ export async function getTrendingMovies(): Promise<MediaItem[]> {
   return results;
 }
 
+export async function getTrendingShows(): Promise<MediaItem[]> {
+  const cacheId = 'tmdb-trending-tv-day';
+  const cached = await readApiCache<MediaItem[]>(cacheId);
+  if (cached) return cached;
+
+  if (!TMDB_API_KEY) return [];
+
+  const res = await timeProviderFetch({
+    provider: "tmdb",
+    cacheId,
+    operation: "tmdb.trending_tv",
+    fetcher: () => fetch(
+    `${BASE_URL}/trending/tv/day?api_key=${TMDB_API_KEY}&language=en-US`,
+    { next: { revalidate: 3600 } }
+    ),
+  });
+
+  if (!res.ok) throw new Error('Failed to fetch trending TV shows');
+  const data = await res.json();
+
+  const results = data.results.map((show: any) => ({
+    id: `tmdb-tv-${show.id}`, 
+    title: show.name || show.title,
+    type: 'show',
+    image: show.poster_path ? `https://image.tmdb.org/t/p/w500${show.poster_path}` : null,
+    releaseDate: show.first_air_date || show.release_date || 'N/A'
+  }));
+
+  await writeApiCache(cacheId, 'tmdb', results, SEARCH_CACHE_TTL_SECONDS);
+
+  return results;
+}
+
 export async function searchTMDb(query: string): Promise<MediaItem[]> {
   const normalizedQuery = query.trim().toLowerCase();
   if (!normalizedQuery) return [];

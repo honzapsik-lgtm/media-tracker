@@ -4,14 +4,8 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-interface RankerItem {
-  mediaId: string;
-  title: string;
-  image: string | null;
-  type: string;
-  score: number;
-  rankPosition: number | null;
-}
+import { ProfileMediaItem } from "@/lib/media-db";
+import MediaCardProfileHorizontal from "@/components/MediaCardProfileHorizontal";
 
 export default function Top100Ranker() {
   const router = useRouter();
@@ -20,12 +14,13 @@ export default function Top100Ranker() {
   const [page, setPage] = useState(1);
   const limit = 50;
 
-  const [items, setItems] = useState<RankerItem[]>([]);
+  const [items, setItems] = useState<ProfileMediaItem[]>([]);
   const [count, setCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [isUnsaved, setIsUnsaved] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -34,8 +29,13 @@ export default function Top100Ranker() {
         const res = await fetch(`/api/profile/rankings?type=${activeTabType}&page=${page}&limit=${limit}`);
         if (res.ok) {
           const data = await res.json();
-          setItems(data.results || []);
+          const fetchedItems = data.results || [];
+          setItems(fetchedItems);
           setCount(data.count || 0);
+          
+          const skip = (page - 1) * limit;
+          const unsaved = fetchedItems.some((item: ProfileMediaItem, index: number) => item.rankPosition !== skip + index + 1);
+          setIsUnsaved(unsaved);
         }
       } catch (err) {
         console.error("Failed to fetch rankings", err);
@@ -63,6 +63,7 @@ export default function Top100Ranker() {
 
     setItems(updated);
     setDraggedIndex(null);
+    setIsUnsaved(true);
   };
 
   const handleSaveRankings = async () => {
@@ -85,7 +86,7 @@ export default function Top100Ranker() {
         throw new Error(data.error || "Could not save rankings.");
       }
 
-      alert("Rankings saved successfully!");
+      setIsUnsaved(false);
       router.refresh(); 
     } catch (err) {
       console.error("Critical error saving rankings:", err);
@@ -117,10 +118,7 @@ export default function Top100Ranker() {
         ))}
       </div>
 
-      <div className="flex justify-between items-center bg-blue-900/20 border border-blue-500/30 p-4 rounded-xl">
-        <p className="text-sm text-blue-200 font-medium max-w-2xl">
-          Drag and drop items to sort your infinite tier lists. Note: You are currently sorting items on <strong>Page {page}</strong> (Ranks {(page - 1) * limit + 1} to {Math.min(page * limit, count || limit)}). Unranked items sit at the bottom.
-        </p>
+      <div className="flex justify-start items-center bg-blue-900/20 border border-blue-500/30 p-4 rounded-xl gap-4">
         <button
           onClick={handleSaveRankings}
           disabled={isSaving || isLoading || items.length === 0}
@@ -128,46 +126,24 @@ export default function Top100Ranker() {
         >
           {isSaving ? "Saving..." : "Save List Order"}
         </button>
+        {isUnsaved && (
+          <p className="text-sm text-red-400 font-bold">
+            Current list order not saved!
+          </p>
+        )}
       </div>
 
       <div className={`space-y-2 transition-opacity duration-300 ${isLoading ? 'opacity-50' : 'opacity-100'}`}>
         {items.map((item, index) => (
-          <div
+          <MediaCardProfileHorizontal 
             key={item.mediaId}
-            draggable
+            item={item}
+            draggable={true}
             onDragStart={() => handleDragStart(index)}
             onDragOver={handleDragOver}
             onDrop={(e) => handleDrop(e, index)}
-            className="flex items-center gap-4 bg-gray-900 border border-gray-800 p-3 rounded-xl hover:border-gray-700 transition-all cursor-grab active:cursor-grabbing select-none"
-          >
-            <span className="w-8 text-center text-xl font-black text-gray-600">
-              #{(page - 1) * limit + index + 1}
-            </span>
-
-            {item.image ? (
-              <img src={item.image} alt={item.title} className="w-12 h-16 object-cover rounded-lg shadow-md shrink-0" />
-            ) : (
-              <div className="w-12 h-16 bg-gray-950 rounded-lg border border-gray-800 flex items-center justify-center text-[10px] text-gray-600 font-bold shrink-0">
-                NO IMG
-              </div>
-            )}
-
-            <div className="flex-1 min-w-0">
-              <Link href={`/media/${item.mediaId}`} className="font-bold text-base text-gray-200 hover:text-blue-400 transition-colors block truncate">
-                {item.title}
-              </Link>
-              <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-gray-950 text-gray-500 border border-gray-800/60 inline-block mt-1">
-                {item.type}
-              </span>
-            </div>
-
-            <div className="pr-2 text-right hidden sm:block">
-              <p className="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-0.5">Rating</p>
-              <span className={`text-base font-black ${item.score >= 75 ? 'text-green-400' : item.score >= 50 ? 'text-yellow-400' : 'text-red-400'}`}>
-                {item.score}%
-              </span>
-            </div>
-          </div>
+            visualRank={(page - 1) * limit + index + 1}
+          />
         ))}
 
         {items.length === 0 && !isLoading && (

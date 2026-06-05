@@ -2,35 +2,9 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { CRITERIA_CONFIG } from "@/lib/constants";
 
 type RatingMediaType = "game" | "movie" | "show" | "season" | "episode" | "manga";
-
-const SHOW_CRITERIA = [
-  { key: "narrative", label: "Narrative" },
-  { key: "cinematography", label: "Cinematography" },
-  { key: "sound", label: "Sound and score" },
-  { key: "acting", label: "Acting performances" },
-  { key: "ending", label: "Ending" },
-];
-
-const CRITERIA_CONFIG: Record<RatingMediaType, { key: string; label: string }[]> = {
-  game: [
-    { key: "narrative", label: "Narrative" }, { key: "gameplay", label: "Gameplay" },
-    { key: "visuals", label: "Visuals and graphics" }, { key: "performance", label: "Performance" },
-    { key: "audio", label: "Audio and soundtrack" },
-  ],
-  movie: [
-    { key: "narrative", label: "Narrative" }, { key: "cinematography", label: "Cinematography" },
-    { key: "sound", label: "Sound and score" }, { key: "acting", label: "Acting performances" },
-  ],
-  show: SHOW_CRITERIA,
-  season: SHOW_CRITERIA,
-  episode: SHOW_CRITERIA,
-  manga: [
-    { key: "narrative", label: "Narrative" }, { key: "artStyle", label: "Art style" },
-    { key: "characters", label: "Characters" }, { key: "development", label: "Development" },
-  ],
-};
 
 export const getScoreColor = (score: number | null | undefined) => {
   if (score === null || score === undefined) return "text-gray-500";
@@ -44,10 +18,11 @@ export const getScoreColor = (score: number | null | undefined) => {
 interface RatingSliderProps {
   mediaId: string; mediaType: RatingMediaType;
   mediaTitle: string; mediaImage: string | null;
+  mediaReleaseDate?: string | null;
   initialRating?: number; initialCriteria?: Record<string, number>;
 }
 
-export default function RatingSlider({ mediaId, mediaType, mediaTitle, mediaImage, initialRating = 50, initialCriteria }: RatingSliderProps) {
+export default function RatingSlider({ mediaId, mediaType, mediaTitle, mediaImage, mediaReleaseDate, initialRating = 50, initialCriteria }: RatingSliderProps) {
   const router = useRouter();
   const [rating, setRating] = useState<number>(initialRating);
   const [isDeepReview, setIsDeepReview] = useState<boolean>(false);
@@ -118,6 +93,7 @@ export default function RatingSlider({ mediaId, mediaType, mediaTitle, mediaImag
           criteriaScores: payloadCriteria,
           mediaTitle,
           mediaImage,
+          mediaReleaseDate,
         }),
       });
 

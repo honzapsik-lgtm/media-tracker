@@ -46,6 +46,7 @@ model UserRating {
   media_id        String
   media_title     String?
   media_image     String?
+  media_release_date String?
   score           Int
   review_text     String?
   username        String?

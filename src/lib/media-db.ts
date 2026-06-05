@@ -11,6 +11,8 @@ export interface ProfileMediaItem {
   image: string | null;
   type: string;
   rankPosition: number | null;
+  criteriaScores?: any;
+  releaseDate?: string | null;
 }
 
 export function inferMediaType(mediaId: string) {
@@ -33,6 +35,8 @@ export function formatProfileRating(row: {
   score: number;
   review_text: string | null;
   rank_position: number | null;
+  criteria_scores?: any;
+  media_release_date?: string | null;
 }): ProfileMediaItem {
   const type = inferMediaType(row.media_id).toUpperCase();
 
@@ -44,6 +48,8 @@ export function formatProfileRating(row: {
     image: row.media_image,
     type,
     rankPosition: row.rank_position,
+    criteriaScores: row.criteria_scores,
+    releaseDate: row.media_release_date,
   };
 }
 
@@ -215,6 +221,7 @@ export async function getRankedMedia(
     total_ratings: number | bigint | null;
     title: string | null;
     image: string | null;
+    release_date: string | null;
     average_rank: Prisma.Decimal | number | null;
     list_rank: number | bigint | null;
   };
@@ -261,6 +268,7 @@ export async function getRankedMedia(
               s.total_ratings,
               MAX(r.media_title) AS title,
               MAX(r.media_image) AS image,
+              MAX(r.media_release_date) AS release_date,
               AVG(r.rank_position) AS average_rank,
               RANK() OVER (
                 ORDER BY 
@@ -287,6 +295,7 @@ export async function getRankedMedia(
               s.total_ratings,
               MAX(r.media_title) AS title,
               MAX(r.media_image) AS image,
+              MAX(r.media_release_date) AS release_date,
               AVG(r.rank_position) AS average_rank,
               RANK() OVER (
                 ORDER BY 
@@ -313,6 +322,7 @@ export async function getRankedMedia(
     media_type: row.media_type,
     title: row.title ?? row.media_id,
     image: row.image ?? null,
+    releaseDate: row.release_date ?? null,
     community_average: row.community_average ? Number(row.community_average) : 0,
     total_ratings: row.total_ratings ? Number(row.total_ratings) : 0,
     average_rank: row.average_rank ? Number(row.average_rank) : null,

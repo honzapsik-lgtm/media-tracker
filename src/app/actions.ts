@@ -171,12 +171,15 @@ export async function discoverMedia(
               ? `https://image.tmdb.org/t/p/w500${backdropPath}`
               : "";
 
+          const releaseDate = tmdbDiscoverType === "movie" ? item?.release_date : item?.first_air_date;
+
           return {
             id: `tmdb-${tmdbDiscoverType}-${item.id}`,
             title: item?.title ?? item?.name ?? "Untitled",
             image,
             type: discoverTypeLabel,
             globalScore,
+            releaseDate: releaseDate || null,
           };
           })
           .filter((x: DiscoverMediaItem | null): x is DiscoverMediaItem => x !== null)
@@ -233,6 +236,7 @@ export async function discoverMedia(
             image: game?.background_image ?? "",
             type: "game",
             globalScore: safeGlobalScore(globalScore),
+            releaseDate: game?.released || null,
           };
           })
           .filter((x: DiscoverMediaItem | null): x is DiscoverMediaItem => x !== null)
@@ -294,6 +298,7 @@ export async function discoverMedia(
             image,
             type: "manga",
             globalScore,
+            releaseDate: manga?.published?.from ? manga.published.from.split("T")[0] : null,
           };
           })
           .filter((x: DiscoverMediaItem | null): x is DiscoverMediaItem => x !== null)

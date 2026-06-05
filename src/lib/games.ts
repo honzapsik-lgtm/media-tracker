@@ -42,6 +42,40 @@ export async function searchGames(query: string): Promise<MediaItem[]> {
   return results;
 }
 
+export async function getTrendingGames(): Promise<MediaItem[]> {
+  const cacheId = 'rawg-trending-games-day';
+  const cached = await readApiCache<MediaItem[]>(cacheId);
+  if (cached) return cached;
+
+  const RAWG_API_KEY = process.env.RAWG_API_KEY;
+  if (!RAWG_API_KEY) return [];
+
+  const res = await timeProviderFetch({
+    provider: "rawg",
+    cacheId,
+    operation: "rawg.trending_games",
+    fetcher: () => fetch(
+    `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&ordering=-added&page_size=10`,
+    { next: { revalidate: 3600 } }
+    ),
+  });
+
+  if (!res.ok) return [];
+  const data = await res.json();
+
+  const results = data.results.map((game: any) => ({
+    id: `rawg-game-${game.id}`,
+    title: game.name,
+    type: 'game',
+    image: game.background_image || null,
+    releaseDate: game.released || 'N/A'
+  }));
+
+  await writeApiCache(cacheId, 'rawg', results, SEARCH_CACHE_TTL_SECONDS);
+
+  return results;
+}
+
 export async function getGameDetails(id: string) {
   const cacheId = `rawg-game-${id}`;
   const cached = await prisma.apiCache.findUnique({ where: { id: cacheId } });

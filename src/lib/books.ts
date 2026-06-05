@@ -49,6 +49,44 @@ export async function searchBooks(query: string): Promise<MediaItem[]> {
   }
 }
 
+export async function getTrendingManga(): Promise<MediaItem[]> {
+  try {
+    const cacheId = 'jikan-trending-manga-day';
+    const cached = await readApiCache<MediaItem[]>(cacheId);
+    if (cached) return cached;
+
+    const res = await timeProviderFetch({
+      provider: "jikan",
+      cacheId,
+      operation: "jikan.trending_manga",
+      fetcher: () => fetch(
+      `https://api.jikan.moe/v4/top/manga?filter=bypopularity&limit=10`,
+      { next: { revalidate: 3600 } }
+      ),
+    });
+
+    if (!res.ok) return [];
+
+    const { data } = await res.json();
+    if (!data) return [];
+
+    const results = data.map((item: any) => ({
+      id: `manga-${item.mal_id}`,
+      title: item.title_english || item.title,
+      type: 'manga',
+      image: item.images?.webp?.image_url || item.images?.jpg?.image_url || null,
+      releaseDate: item.published?.prop?.from?.year?.toString() || 'N/A'
+    }));
+
+    await writeApiCache(cacheId, 'jikan', results, SEARCH_CACHE_TTL_SECONDS);
+
+    return results;
+  } catch (error) {
+    console.error("Trending Manga API Fetch failed:", error);
+    return [];
+  }
+}
+
 // 2. Details Fetcher
 export async function getBookDetails(id: string) {
   try {

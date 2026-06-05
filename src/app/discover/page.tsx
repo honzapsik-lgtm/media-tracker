@@ -3,6 +3,7 @@ import DiscoverFilters from "@/components/DiscoverFilters";
 import Link from "next/link";
 import { getListRankMap, getMediaStatsMap } from "@/lib/media-db";
 import type { DiscoverMediaItem } from "@/app/actions";
+import MediaCardVertical from "@/components/MediaCardVertical";
 
 // Force Next.js to always fetch fresh Database scores instead of caching the page
 export const dynamic = "force-dynamic";
@@ -54,44 +55,14 @@ export default async function DiscoverPage({
               const gRank = rankMap[item.id];
 
               return (
-                <Link 
-                  href={`/media/${item.id}`} 
+                <MediaCardVertical 
                   key={item.id} 
-                  className="block hover:scale-105 transition-transform duration-300 relative group"
-                >
-                  <div className="bg-gray-900 rounded-xl overflow-hidden shadow-lg h-full border border-gray-800 relative flex flex-col">
-                    
-                    {/* Top Left: Community Score Badge (Always Visible) */}
-                    <div className={`absolute top-2 left-2 z-10 px-2 py-1 text-xs font-black rounded shadow-lg border backdrop-blur-md transition-colors ${getScoreColor(cScore)}`}>
-                      ★ {cScore ? `${cScore}%` : 'N/A'}
-                    </div>
-
-                    {/* Top Right: List Rank Badge (Always Visible) */}
-                    <div className={`absolute top-2 right-2 z-10 px-2 py-1 text-xs font-black rounded shadow-lg border backdrop-blur-md transition-colors ${
-                      gRank ? 'bg-blue-900/80 text-blue-400 border-blue-500' : 'bg-gray-900/80 text-gray-500 border-gray-700'
-                    }`}>
-                      {gRank ? `#${gRank}` : '# -'}
-                    </div>
-                    
-                    {/* Poster Image */}
-                    {item.image ? (
-                      <img src={item.image} alt={item.title} className="w-full h-auto object-cover aspect-[2/3] group-hover:opacity-80 transition-opacity" />
-                    ) : (
-                      <div className="w-full aspect-[2/3] bg-gray-800 flex items-center justify-center text-gray-500 p-4 text-center">No Image</div>
-                    )}
-                    
-                    {/* Title & Type */}
-                    <div className="p-4 flex flex-col flex-1 justify-between">
-                      <h2 className="font-semibold text-lg truncate" title={item.title}>{item.title}</h2>
-                      <div className="flex justify-between items-end mt-2">
-                        <p className="text-gray-400 text-[10px] font-black uppercase tracking-wider">{item.type}</p>
-                        {item.releaseDate && (
-                          <p className="text-gray-500 text-xs font-medium">{item.releaseDate.split('-')[0]}</p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </Link>
+                  item={{
+                    ...item,
+                    communityScore: cScore || null,
+                    listRank: gRank || null,
+                  }} 
+                />
               );
             })}
           </div>

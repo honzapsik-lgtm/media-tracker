@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getRankedMedia } from "@/lib/media-db";
+import MediaCardHorizontal from "@/components/MediaCardHorizontal";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -102,43 +103,21 @@ export default async function RankingsPage({
               const displayRank = sort === 'list_rank' ? item.list_rank : from + index + 1;
 
               return (
-                <Link href={`/media/${item.media_id}`} key={item.media_id} className="flex items-center gap-4 bg-gray-900 border border-gray-800 p-3 rounded-xl hover:bg-gray-800 hover:border-gray-700 transition-all group">
-                  <div className="w-12 shrink-0 text-center font-black text-2xl text-gray-600 group-hover:text-blue-500 transition-colors">
-                    #{displayRank}
-                  </div>
-                  <div className="shrink-0">
-                    {item.image ? (
-                      <img src={item.image} className="w-12 h-16 object-cover rounded-md shadow-md" alt={item.title || "Cover"} />
-                    ) : (
-                      <div className="w-12 h-16 bg-gray-950 border border-gray-800 rounded-md flex items-center justify-center text-[9px] font-bold text-gray-600">NO IMG</div>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-lg font-bold text-gray-200 truncate group-hover:text-white">{item.title || "Unknown Title"}</p>
-                    <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-gray-950 text-gray-500 border border-gray-800/60 inline-block mt-1">
-                      {item.media_type}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-6 pr-4 shrink-0">
-                    {sort === 'popular' && (
-                      <div className="text-right hidden sm:block">
-                        <p className="text-[9px] text-gray-500 uppercase font-bold tracking-widest mb-1">Ratings</p>
-                        <p className="font-black text-base text-blue-400">{item.total_ratings}</p>
-                      </div>
-                    )}
-                    {sort !== 'popular' && (
-                      <div className="text-right hidden sm:block">
-                        <p className="text-[9px] text-gray-500 uppercase font-bold tracking-widest mb-1">List Rank</p>
-                        <p className={`font-black text-base ${item.list_rank ? 'text-white' : 'text-gray-600'}`}>{item.list_rank ? `#${item.list_rank}` : '-'}</p>
-                      </div>
-                    )}
-                    <div className="w-px h-8 bg-gray-800 hidden sm:block"></div>
-                    <div className="text-right">
-                      <p className="text-[9px] text-gray-500 uppercase font-bold tracking-widest mb-1">Score</p>
-                      <p className={`font-black text-base ${getScoreColor(item.community_average)}`}>{item.community_average ? `${item.community_average}%` : 'N/A'}</p>
-                    </div>
-                  </div>
-                </Link>
+                <MediaCardHorizontal
+                  key={item.media_id}
+                  rankPosition={displayRank}
+                  showTotalRatings={sort === 'popular'}
+                  item={{
+                    id: item.media_id,
+                    title: item.title || "Unknown Title",
+                    type: item.media_type,
+                    image: item.image,
+                    releaseDate: item.releaseDate,
+                    communityScore: item.community_average,
+                    listRank: item.list_rank,
+                    totalRatings: item.total_ratings,
+                  }}
+                />
               );
             })
           )}

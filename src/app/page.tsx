@@ -1,55 +1,53 @@
-import { getTrendingMovies } from '@/lib/tmdb';
+import { getTrendingMovies, getTrendingShows } from '@/lib/tmdb';
+import { getTrendingGames } from '@/lib/games';
+import { getTrendingManga } from '@/lib/books';
+import { getListRankMap, getMediaStatsMap } from '@/lib/media-db';
 import SearchBar from '@/components/SearchBar';
-import Link from 'next/link';
+import MediaRow from '@/components/MediaRow';
 import { Suspense } from 'react';
 
 export default async function Home() {
-  const movies = await getTrendingMovies();
+  const [movies, shows, games, manga] = await Promise.all([
+    getTrendingMovies(),
+    getTrendingShows(),
+    getTrendingGames(),
+    getTrendingManga()
+  ]);
+
+  const allItems = [...movies, ...shows, ...games, ...manga];
+  const mediaIds = allItems.map((item) => item.id);
+  const [statsMap, rankMap] = await Promise.all([
+    getMediaStatsMap(mediaIds),
+    getListRankMap(mediaIds),
+  ]);
+
+  const applyStats = (items: typeof movies) => items.map(item => ({
+    ...item,
+    communityScore: statsMap[item.id] || null,
+    listRank: rankMap[item.id] || null,
+  }));
+
+  const enhancedMovies = applyStats(movies);
+  const enhancedShows = applyStats(shows);
+  const enhancedGames = applyStats(games);
+  const enhancedManga = applyStats(manga);
 
   return (
     <main className="min-h-screen bg-gray-950 text-white p-8">
       <div className="max-w-7xl mx-auto">
-        <div className="text-center mb-12">
-          <h1 className="text-5xl font-extrabold leading-tight pb-2 mb-4 text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500">
-            Media Aggregator
+        <div className="text-center mb-16 pt-8">
+          <h1 className="text-6xl font-extrabold leading-tight pb-2 mb-6 text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-purple-500 to-pink-500 tracking-tight">
+            Media Tracker Hub
           </h1>
-          <Suspense>
-            <SearchBar />
-          </Suspense>
+          <p className="text-gray-400 mb-8 max-w-2xl mx-auto text-lg">
+            Your centralized hub for tracking the latest and greatest across movies, TV shows, games, and manga.
+          </p>
         </div>
 
-        <h2 className="text-2xl font-bold mb-6">Trending Movies</h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
-          {movies.map((movie) => (
-            <Link 
-              href={`/media/${movie.id}`} // FIXED: No longer hardcoding tmdb- prefix
-              key={movie.id} 
-              className="block hover:scale-105 transition-transform duration-300"
-            >
-              <div className="bg-gray-900 rounded-xl overflow-hidden shadow-lg h-full border border-gray-800">
-                {movie.image ? (
-                  <img 
-                    src={movie.image} 
-                    alt={movie.title}
-                    className="w-full h-auto object-cover aspect-[2/3]"
-                  />
-                ) : (
-                  <div className="w-full aspect-[2/3] bg-gray-800 flex items-center justify-center text-gray-500">
-                    No Image
-                  </div>
-                )}
-                <div className="p-4">
-                  <h2 className="font-semibold text-lg truncate" title={movie.title}>
-                    {movie.title}
-                  </h2>
-                  <p className="text-gray-400 text-sm">
-                    {movie.releaseDate ? movie.releaseDate.split('-')[0] : 'N/A'}
-                  </p>
-                </div>
-              </div>
-            </Link>
-          ))}
-        </div>
+        <MediaRow title="Trending Movies" items={enhancedMovies} />
+        <MediaRow title="Trending TV Shows" items={enhancedShows} />
+        <MediaRow title="Trending Games" items={enhancedGames} />
+        <MediaRow title="Trending Manga" items={enhancedManga} />
       </div>
     </main>
   );

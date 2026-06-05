@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import Top100Ranker from "@/components/Top100Ranker";
+import MediaCardProfileHorizontal from "@/components/MediaCardProfileHorizontal";
 import { BADGE_DICTIONARY } from "@/components/ProfileHeader";
 
 const getScoreColor = (score: number | null | undefined) => {
@@ -195,20 +196,9 @@ export default function ProfileTabs({
 
       {activeTab === 'ratings' && (
         <div className={`transition-opacity duration-300 ${isLoading ? 'opacity-50' : 'opacity-100'}`}>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
+          <div className="space-y-2">
             {data.map((item) => (
-              <div key={item.mediaId} className="relative group bg-gray-900 rounded-xl overflow-hidden shadow-lg border border-gray-800 flex flex-col h-full">
-                <div className={`absolute top-2 right-2 z-10 px-2 py-1 text-xs font-black rounded shadow-lg border backdrop-blur-md ${getScoreColor(item.score)}`}>
-                  {item.score}%
-                </div>
-                <Link href={getMediaUrl(item.mediaId)} className="block relative aspect-[2/3] overflow-hidden">
-                  {item.image ? <img src={item.image} alt={item.title} className="w-full h-full object-cover group-hover:opacity-80 transition-opacity" /> : <div className="w-full h-full bg-gray-800 flex items-center justify-center text-gray-500 p-4 text-center">No Image</div>}
-                </Link>
-                <div className="p-4 flex flex-col flex-1">
-                  <h2 className="font-semibold text-lg truncate mb-1" title={item.title}>{item.title}</h2>
-                  <p className="text-gray-400 text-xs uppercase tracking-wider mb-4">{getDisplayType(item.type, item.mediaId)}</p>
-                </div>
-              </div>
+              <MediaCardProfileHorizontal key={item.mediaId} item={item} />
             ))}
           </div>
           {renderPagination()}

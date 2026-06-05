@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { MediaItem } from "@/types";
+import MediaCardHorizontal from "./MediaCardHorizontal";
 
 interface SearchResultsTabsProps {
   results: MediaItem[];
@@ -67,40 +67,9 @@ export default function SearchResultsTabs({ results }: SearchResultsTabsProps) {
       {filteredResults.length === 0 ? (
         <p className="text-gray-400 text-center py-12">No results found in this category.</p>
       ) : (
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
-          {/* THE FIX: Added 'index' to the map function and the key */}
+        <div className="space-y-2">
           {filteredResults.map((item, index) => (
-            <Link 
-              href={`/media/${item.id}`} 
-              key={`${item.id}-${index}`} 
-              className="block hover:scale-105 transition-transform duration-300"
-            >
-              <div className="bg-gray-900 rounded-xl overflow-hidden shadow-lg h-full relative border border-gray-800">
-                <div className="absolute top-2 right-2 z-10 px-2 py-1 text-xs font-bold uppercase rounded-md shadow bg-black/70 backdrop-blur-sm text-white border border-white/20">
-                  {item.type}
-                </div>
-
-                {item.image ? (
-                  <img 
-                    src={item.image} 
-                    alt={item.title}
-                    className="w-full h-auto object-cover aspect-[2/3]"
-                  />
-                ) : (
-                  <div className="w-full aspect-[2/3] bg-gray-800 flex items-center justify-center text-gray-500">
-                    No Image
-                  </div>
-                )}
-                <div className="p-4">
-                  <h2 className="font-semibold text-lg truncate" title={item.title}>
-                    {item.title}
-                  </h2>
-                  <p className="text-gray-400 text-sm">
-                    {item.releaseDate ? item.releaseDate.split('-')[0] : 'N/A'}
-                  </p>
-                </div>
-              </div>
-            </Link>
+            <MediaCardHorizontal key={`${item.id}-${index}`} item={item} />
           ))}
         </div>
       )}

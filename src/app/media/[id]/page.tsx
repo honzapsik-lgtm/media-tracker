@@ -9,6 +9,7 @@ import { notFound, redirect } from "next/navigation";
 import ExpandableText from "@/components/ExpandableText";
 import WatchlistButton from "@/components/WatchlistButton";
 import { prisma } from "@/lib/prisma";
+import { CRITERIA_CONFIG } from "@/lib/constants";
 import {
   calculateCriteriaAverages,
   getDeepCriteriaRows,
@@ -18,12 +19,7 @@ import {
   getMediaStatsMap,
 } from "@/lib/media-db";
 
-const CRITERIA_CONFIG: Record<string, { key: string; label: string }[]> = {
-  game: [ { key: "narrative", label: "Narrative" }, { key: "gameplay", label: "Gameplay" }, { key: "visuals", label: "Visuals and graphics" }, { key: "performance", label: "Performance" }, { key: "audio", label: "Audio and soundtrack" } ],
-  movie: [ { key: "narrative", label: "Narrative" }, { key: "cinematography", label: "Cinematography" }, { key: "sound", label: "Sound and score" }, { key: "acting", label: "Acting performances" } ],
-  show: [ { key: "narrative", label: "Narrative" }, { key: "cinematography", label: "Cinematography" }, { key: "sound", label: "Sound and score" }, { key: "acting", label: "Acting performances" }, { key: "ending", label: "Ending" } ],
-  manga: [ { key: "narrative", label: "Narrative" }, { key: "artStyle", label: "Art style" }, { key: "characters", label: "Characters" }, { key: "development", label: "Development" } ],
-};
+
 
 const getScoreColor = (score: number | null | undefined) => {
   if (score === null || score === undefined) return "text-gray-500";
@@ -122,7 +118,7 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
             ) : (
               <div className="w-full aspect-[2/3] bg-gray-900 rounded-2xl border border-gray-800 flex items-center justify-center">No Image</div>
             )}
-            <RatingSlider mediaId={mediaId} mediaType={mediaTypeKey} mediaTitle={mediaDetails.title} mediaImage={mediaDetails.image} />
+            <RatingSlider mediaId={mediaId} mediaType={mediaTypeKey} mediaTitle={mediaDetails.title} mediaImage={mediaDetails.image} mediaReleaseDate={mediaDetails.releaseDate} />
           </div>
 
           <div className="flex-1">
@@ -155,6 +151,15 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
                 <span className="bg-gray-900/80 border border-gray-800 px-3 py-1 rounded-full text-xs font-bold text-gray-400">
                   {mediaDetails.runtime} min
                 </span>
+              )}
+
+              {mediaDetails.type === "show" && mediaDetails.seasons && (
+                <>
+                  <span className="text-gray-600">•</span>
+                  <span className="bg-gray-900/80 border border-gray-800 px-3 py-1 rounded-full text-xs font-bold text-gray-400">
+                    {(mediaDetails.seasons as any[]).filter((s: any) => s.season_number > 0).length} seasons
+                  </span>
+                </>
               )}
             </div>
 
@@ -192,12 +197,6 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
             <ExpandableText text={mediaDetails.description} maxLength={300} />
             
             <div className="flex flex-wrap gap-8 border-y border-gray-800 py-6 mb-8 mt-8 bg-gray-950/50 rounded-xl px-6">
-              <div className="shrink-0">
-                <p className="text-xs text-gray-500 uppercase tracking-widest font-bold mb-1">{getPlatformName(mediaDetails.type)}</p>
-                <p className={`text-4xl font-extrabold ${getScoreColor(mediaDetails.globalScore)}`}>{mediaDetails.globalScore ? `${mediaDetails.globalScore}%` : 'N/A'}</p>
-              </div>
-              <div className="w-px bg-gray-800 hidden sm:block"></div>
-              
               <div className="shrink-0">
                 <p className="text-xs text-gray-500 uppercase tracking-widest font-bold mb-1">Community Score</p>
                 <p className={`text-4xl font-extrabold ${getScoreColor(stats?.community_average)}`}>
@@ -253,8 +252,8 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
                           ★ {cScore || 'N/A'}
                         </div>
 
-                        <div className={`absolute top-2 right-2 text-[10px] font-black px-1.5 py-0.5 rounded border ${gRank ? 'bg-blue-900/20 text-blue-400 border-blue-800/30 group-hover:bg-blue-600 group-hover:text-white transition-colors' : 'bg-transparent text-gray-700 border-transparent'}`}>
-                          {gRank ? `#${gRank}` : ''}
+                        <div className={`absolute top-2 right-2 text-[10px] font-black px-1.5 py-0.5 rounded border ${gRank ? 'bg-blue-900/80 text-blue-400 border-blue-500' : 'bg-gray-900/80 text-gray-500 border-gray-700'}`}>
+                          {gRank ? `#${gRank}` : '# -'}
                         </div>
 
                         <p className="font-bold text-lg mt-3">{season.name}</p>

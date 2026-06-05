@@ -22,6 +22,7 @@ type RatingBody = {
   criteriaScores?: Record<string, number>;
   mediaTitle?: string;
   mediaImage?: string | null;
+  mediaReleaseDate?: string | null;
 };
 
 export async function GET(request: Request) {
@@ -104,6 +105,7 @@ export async function POST(request: Request) {
         criteria_scores: criteriaScores as Prisma.InputJsonValue,
         media_title: body.mediaTitle,
         media_image: body.mediaImage ?? null,
+        media_release_date: body.mediaReleaseDate ?? null,
         username: user?.name ?? user?.email?.split("@")[0] ?? "Anonymous",
         avatar_url: user?.image ?? null,
       },
@@ -115,6 +117,7 @@ export async function POST(request: Request) {
         criteria_scores: criteriaScores as Prisma.InputJsonValue,
         media_title: body.mediaTitle,
         media_image: body.mediaImage ?? null,
+        media_release_date: body.mediaReleaseDate ?? null,
         username: user?.name ?? user?.email?.split("@")[0] ?? "Anonymous",
         avatar_url: user?.image ?? null,
       },

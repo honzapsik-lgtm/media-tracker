@@ -1,8 +1,8 @@
 import { searchTMDb } from "@/lib/tmdb";
 import { searchBooks } from "@/lib/books";
 import { searchGames } from "@/lib/games";
-import SearchBar from "@/components/SearchBar";
-import SearchResultsTabs from "@/components/SearchResultsTabs"; // Import the new component
+import { getListRankMap, getMediaStatsMap } from '@/lib/media-db';
+import SearchResultsTabs from "@/components/SearchResultsTabs";
 import Link from "next/link";
 import { Suspense } from "react";
 
@@ -20,9 +20,22 @@ export default async function SearchPage({
     : [[], [], []];
 
   // Combine and sort alphabetically
-  const combinedResults = [...tmdbResults, ...books, ...games].sort((a, b) => 
+  let combinedResults = [...tmdbResults, ...books, ...games].sort((a, b) => 
     a.title.localeCompare(b.title)
   );
+
+  if (combinedResults.length > 0) {
+    const mediaIds = combinedResults.map(i => i.id);
+    const [statsMap, rankMap] = await Promise.all([
+      getMediaStatsMap(mediaIds),
+      getListRankMap(mediaIds),
+    ]);
+    combinedResults = combinedResults.map(item => ({
+      ...item,
+      communityScore: statsMap[item.id] || null,
+      listRank: rankMap[item.id] || null,
+    }));
+  }
 
   return (
     <main className="min-h-screen bg-gray-950 text-white p-8">
@@ -32,10 +45,6 @@ export default async function SearchPage({
             ← Back Home
           </Link>
         </div>
-
-        <Suspense>
-          <SearchBar />
-        </Suspense>
 
         <h1 className="text-2xl font-bold mb-6">
           Search Results for: <span className="text-blue-400">&ldquo;{query}&rdquo;</span>
