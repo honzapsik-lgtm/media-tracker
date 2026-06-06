@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { CRITERIA_CONFIG } from "@/lib/constants";
+import RankListSelectModal from "@/components/RankListSelectModal";
 
 type RatingMediaType = "game" | "movie" | "show" | "season" | "episode" | "manga";
 
@@ -39,6 +40,7 @@ export default function RatingSlider({ mediaId, mediaType, mediaTitle, mediaImag
   const [globalCriteriaAverages, setGlobalCriteriaAverages] = useState<Record<string, number>>({});
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [showListModal, setShowListModal] = useState<boolean>(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -105,6 +107,9 @@ export default function RatingSlider({ mediaId, mediaType, mediaTitle, mediaImag
       setHasRated(true);
       fetchData(); 
       router.refresh(); // Tells Next.js to instantly reload the server data on the main page
+      if (!hasRated) {
+        setShowListModal(true); // Open the Rank List prompt only for new ratings
+      }
     } catch (err) {
       setMessage({ type: "error", text: err instanceof Error ? err.message : "Something went wrong." });
     } 
@@ -149,6 +154,21 @@ export default function RatingSlider({ mediaId, mediaType, mediaTitle, mediaImag
       <button onClick={handleSave} disabled={isSaving} className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-gray-800 disabled:text-gray-600 text-white font-black py-3 px-4 rounded-xl transition-all tracking-wide text-sm shadow-lg shadow-blue-600/10">
         {isSaving ? "Saving..." : hasRated ? "Update Rating Data" : "Save Rating Data"}
       </button>
+
+      {showListModal && (
+        <RankListSelectModal
+          item={{
+            id: mediaId,
+            type: mediaType,
+            title: mediaTitle,
+            image: mediaImage,
+            releaseDate: mediaReleaseDate ?? null,
+            communityScore: 0, // Dummies for TS type requirement, unused by modal
+            listRank: null,
+          }}
+          onClose={() => setShowListModal(false)}
+        />
+      )}
     </div>
   );
 }

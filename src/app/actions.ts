@@ -182,7 +182,7 @@ export async function discoverMedia(
             releaseDate: releaseDate || null,
           };
           })
-          .filter((x: DiscoverMediaItem | null): x is DiscoverMediaItem => x !== null)
+          .filter(Boolean) as DiscoverMediaItem[]
       );
 
       await writeApiCache(cacheId, "tmdb", discoverItems, DISCOVER_CACHE_TTL_SECONDS);
@@ -239,7 +239,7 @@ export async function discoverMedia(
             releaseDate: game?.released || null,
           };
           })
-          .filter((x: DiscoverMediaItem | null): x is DiscoverMediaItem => x !== null)
+          .filter(Boolean) as DiscoverMediaItem[]
       );
 
       await writeApiCache(cacheId, "rawg", discoverItems, DISCOVER_CACHE_TTL_SECONDS);
@@ -301,7 +301,7 @@ export async function discoverMedia(
             releaseDate: manga?.published?.from ? manga.published.from.split("T")[0] : null,
           };
           })
-          .filter((x: DiscoverMediaItem | null): x is DiscoverMediaItem => x !== null)
+          .filter(Boolean) as DiscoverMediaItem[]
       );
 
       await writeApiCache(cacheId, "jikan", discoverItems, DISCOVER_CACHE_TTL_SECONDS);

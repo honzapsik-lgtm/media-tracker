@@ -2,6 +2,7 @@ import { getSeasonEpisodes } from "@/app/actions";
 import RatingSlider from "@/components/RatingSlider";
 import ExpandableText from "@/components/ExpandableText";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { getTMDbDetails } from "@/lib/tmdb";
 import type { Episode } from "@/app/media/[id]/season/[seasonNumber]/page";
 import { getMediaStats, getDeepCriteriaRows, getListRank, calculateCriteriaAverages } from "@/lib/media-db";

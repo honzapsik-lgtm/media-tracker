@@ -43,7 +43,7 @@ export async function GET(
       prisma.userRating.count({ where: { user_id: userId } }),
       prisma.userWatchlist.count({ where: { user_id: userId } }),
       prisma.userBadge.count({ where: { user_id: userId } }),
-      prisma.userRankedList.count({ where: { user_id: userId } }),
+      prisma.userList.count({ where: { user_id: userId } }),
       // For JSON fields, Prisma doesn't support deep filtering directly in all DBs natively via simple syntax easily,
       // but we can query by raw if needed. Since we just need recent jobs for a user, 
       // let's fetch recent jobs and filter in JS if it's too complex, or use a raw query.

@@ -25,18 +25,45 @@ model UserBadge {
   @@map("user_badges")
 }
 
-model UserRankedList {
-  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id       String?   @db.Uuid
-  media_id      String
-  media_type    String
-  rank_position Int
-  created_at    DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at    DateTime? @default(now()) @db.Timestamptz(6)
-  user          User?     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+model UserList {
+  id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id     String         @db.Uuid
+  title       String
+  description String?
+  media_type  String         // Constrained values: 'movie', 'show', 'manga', 'season', 'episode', 'game'
+  created_at  DateTime       @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime       @default(now()) @updatedAt @db.Timestamptz(6)
+  
+  user        User           @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  items       UserListItem[]
 
-  @@unique([user_id, media_id])
-  @@map("user_ranked_lists")
+  @@index([user_id, media_type])
+  @@map("user_lists")
+}
+
+model UserListItem {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  list_id       String    @db.Uuid
+  media_id      String
+  media_title   String?
+  media_image   String?
+  rank_position Int       // 1-indexed relative ordering inside this specific list
+  
+  list          UserList  @relation(fields: [list_id], references: [id], onDelete: Cascade)
+
+  @@unique([list_id, media_id])
+  @@index([list_id, rank_position])
+  @@map("user_list_items")
+}
+
+model GlobalRanking {
+  media_id    String    @id
+  media_type  String
+  elo_score   Float     @default(1200.0)
+  rank        Int?      // Cached global integer ranking position calculated dynamically
+
+  @@index([media_type, elo_score(sort: Desc)])
+  @@map("global_rankings")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -95,7 +122,7 @@ model User {
   ratings       UserRating[]
   watchlist     UserWatchlist[]
   badges        UserBadge[]
-  ranked_lists  UserRankedList[]
+  lists         UserList[]
   stats_cache   UserStatsCache[]
 
   @@map("users")

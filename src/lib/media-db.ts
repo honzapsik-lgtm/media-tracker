@@ -12,6 +12,8 @@ export interface ProfileMediaItem {
   type: string;
   rankPosition: number | null;
   criteriaScores?: any;
+  inUserList?: boolean;
+  hasRated?: boolean;
   releaseDate?: string | null;
 }
 
@@ -244,8 +246,8 @@ export async function getRankedMedia(
       ? await prisma.$queryRaw<{count: number | bigint}[]>`
           SELECT COUNT(DISTINCT s.id) as count
           FROM media_stats s
-          INNER JOIN user_ratings r ON s.id = r.media_id
-          WHERE s.media_type = ${mediaType} AND r.rank_position IS NOT NULL
+          INNER JOIN global_rankings g ON s.id = g.media_id
+          WHERE s.media_type = ${mediaType} AND g.rank IS NOT NULL
         `.then(res => Number(res[0].count))
       : await prisma.mediaStats.count({
           where: { media_type: mediaType },
@@ -260,7 +262,7 @@ export async function getRankedMedia(
     // 2. Perform global sort via raw SQL CTE
     const query = sort === "list_rank" 
       ? Prisma.sql`
-          WITH global_rankings AS (
+          WITH global_rankings_cte AS (
             SELECT 
               s.id AS media_id,
               s.media_type,
@@ -269,25 +271,22 @@ export async function getRankedMedia(
               MAX(r.media_title) AS title,
               MAX(r.media_image) AS image,
               MAX(r.media_release_date) AS release_date,
-              AVG(r.rank_position) AS average_rank,
-              RANK() OVER (
-                ORDER BY 
-                  AVG(r.rank_position) ASC NULLS LAST, 
-                  s.community_average DESC NULLS LAST
-              ) as list_rank
+              g.elo_score AS average_rank,
+              g.rank as list_rank
             FROM media_stats s
+            LEFT JOIN global_rankings g ON s.id = g.media_id
             LEFT JOIN user_ratings r ON s.id = r.media_id
             WHERE s.media_type = ${mediaType}
-            GROUP BY s.id, s.media_type, s.community_average, s.total_ratings
-            HAVING AVG(r.rank_position) IS NOT NULL
+            GROUP BY s.id, s.media_type, s.community_average, s.total_ratings, g.rank, g.elo_score
+            HAVING g.rank IS NOT NULL
           )
-          SELECT * FROM global_rankings
+          SELECT * FROM global_rankings_cte
           ${orderByClause}
           OFFSET ${skip}
           LIMIT ${limit}
         `
       : Prisma.sql`
-          WITH global_rankings AS (
+          WITH global_rankings_cte AS (
             SELECT 
               s.id AS media_id,
               s.media_type,
@@ -296,18 +295,15 @@ export async function getRankedMedia(
               MAX(r.media_title) AS title,
               MAX(r.media_image) AS image,
               MAX(r.media_release_date) AS release_date,
-              AVG(r.rank_position) AS average_rank,
-              RANK() OVER (
-                ORDER BY 
-                  AVG(r.rank_position) ASC NULLS LAST, 
-                  s.community_average DESC NULLS LAST
-              ) as list_rank
+              g.elo_score AS average_rank,
+              g.rank as list_rank
             FROM media_stats s
+            LEFT JOIN global_rankings g ON s.id = g.media_id
             LEFT JOIN user_ratings r ON s.id = r.media_id
             WHERE s.media_type = ${mediaType}
-            GROUP BY s.id, s.media_type, s.community_average, s.total_ratings
+            GROUP BY s.id, s.media_type, s.community_average, s.total_ratings, g.rank, g.elo_score
           )
-          SELECT * FROM global_rankings
+          SELECT * FROM global_rankings_cte
           ${orderByClause}
           OFFSET ${skip}
           LIMIT ${limit}
@@ -462,13 +458,12 @@ export async function getUserWatchlist(userId: string, page: number, limit: numb
 export async function getUserRankedList(userId: string, mediaType: string, page: number, limit: number) {
   const skip = (page - 1) * limit;
   const [results, count] = await Promise.all([
-    prisma.userRankedList.findMany({
+    prisma.userList.findMany({
       where: { user_id: userId, media_type: mediaType },
-      orderBy: { rank_position: "asc" },
       skip,
       take: limit,
     }),
-    prisma.userRankedList.count({ where: { user_id: userId, media_type: mediaType } }),
+    prisma.userList.count({ where: { user_id: userId, media_type: mediaType } }),
   ]);
   return { results, count };
 }

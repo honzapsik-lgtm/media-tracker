@@ -105,7 +105,7 @@ export default async function RankingsPage({
               return (
                 <MediaCardHorizontal
                   key={item.media_id}
-                  rankPosition={displayRank}
+                  rankPosition={displayRank ?? undefined}
                   showTotalRatings={sort === 'popular'}
                   item={{
                     id: item.media_id,

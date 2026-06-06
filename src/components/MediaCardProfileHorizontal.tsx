@@ -1,5 +1,8 @@
 import Link from "next/link";
+import { useState } from "react";
 import { ProfileMediaItem } from "@/lib/media-db";
+import RankListSelectModal from "@/components/RankListSelectModal";
+import GlobalRatingModal from "@/components/GlobalRatingModal";
 
 const getScoreColor = (score: number | null | undefined) => {
   if (score === null || score === undefined) return "text-gray-500";
@@ -17,12 +20,16 @@ interface MediaCardProfileHorizontalProps {
   onDragOver?: (e: React.DragEvent) => void;
   onDrop?: (e: React.DragEvent) => void;
   visualRank?: number; // the visual rank on the page
+  viewContext?: "ratings" | "lists";
 }
 
 export default function MediaCardProfileHorizontal({ 
-  item, draggable, onDragStart, onDragOver, onDrop, visualRank 
+  item, draggable, onDragStart, onDragOver, onDrop, visualRank, viewContext 
 }: MediaCardProfileHorizontalProps) {
   
+  const [showListModal, setShowListModal] = useState(false);
+  const [showRatingModal, setShowRatingModal] = useState(false);
+
   const hasCriteria = item.criteriaScores && Object.keys(item.criteriaScores).length > 0;
   
   return (
@@ -55,11 +62,11 @@ export default function MediaCardProfileHorizontal({
           <p className="text-lg font-bold text-gray-200 truncate group-hover:text-white">
             {item.title || "Unknown Title"}
           </p>
-          <div className="flex items-center gap-3 mt-1">
-            <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-gray-950 text-gray-500 border border-gray-800/60 inline-block">
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-gray-950 text-gray-500 border border-gray-800/60 leading-none flex items-center">
               {item.type}
             </span>
-            <span className="text-gray-500 text-xs font-medium">
+            <span className="text-gray-500 text-xs font-medium leading-none flex items-center">
               {item.releaseDate ? item.releaseDate.split('-')[0] : 'N/A'}
             </span>
           </div>
@@ -69,6 +76,29 @@ export default function MediaCardProfileHorizontal({
       {/* Far Right Stats */}
       <div className="flex flex-wrap items-center justify-end gap-6 pr-2 shrink-0">
         
+        {/* Action Button to the left of criteria */}
+        {item.inUserList === false && viewContext === "ratings" && (
+          <div className="flex items-center justify-center border-r border-gray-800 pr-4">
+            <button 
+              onClick={() => setShowListModal(true)}
+              className="bg-blue-600 hover:bg-blue-500 text-white font-black text-xs py-1.5 px-3 rounded shadow-lg transition-colors"
+            >
+              + List
+            </button>
+          </div>
+        )}
+
+        {(item.hasRated === false || item.score === 0 || item.score === null) && viewContext === "lists" && (
+          <div className="flex items-center justify-center border-r border-gray-800 pr-4">
+            <button 
+              onClick={() => setShowRatingModal(true)}
+              className="bg-yellow-600 hover:bg-yellow-500 text-white font-black text-xs py-1.5 px-3 rounded shadow-lg transition-colors"
+            >
+              Rate
+            </button>
+          </div>
+        )}
+
         {/* Criteria breakdown if available */}
         {hasCriteria && (
           <div className="hidden lg:flex items-center gap-4 pr-4 border-r border-gray-800">
@@ -81,15 +111,7 @@ export default function MediaCardProfileHorizontal({
           </div>
         )}
 
-        <div className="text-right hidden sm:block">
-          <p className="text-[9px] text-gray-500 uppercase font-bold tracking-widest mb-1">List Rank</p>
-          <p className={`font-black text-base ${item.rankPosition ? 'text-white' : 'text-gray-600'}`}>
-            {item.rankPosition ? `#${item.rankPosition}` : '-'}
-          </p>
-        </div>
-        
-        <div className="w-px h-8 bg-gray-800 hidden sm:block"></div>
-        
+        {/* Right Stats Block: Always My Score */}
         <div className="text-right w-16">
           <p className="text-[9px] text-blue-500 uppercase font-bold tracking-widest mb-1">My Score</p>
           <p className={`font-black text-base ${getScoreColor(item.score)}`}>
@@ -97,6 +119,36 @@ export default function MediaCardProfileHorizontal({
           </p>
         </div>
       </div>
+
+      {showListModal && (
+        <RankListSelectModal
+          item={{
+            id: item.mediaId,
+            type: item.type,
+            title: item.title,
+            image: item.image,
+            releaseDate: item.releaseDate ?? null,
+            communityScore: 0,
+            listRank: null,
+          }}
+          onClose={() => setShowListModal(false)}
+        />
+      )}
+
+      {showRatingModal && (
+        <GlobalRatingModal
+          item={{
+            id: item.mediaId,
+            type: item.type,
+            title: item.title,
+            image: item.image,
+            releaseDate: item.releaseDate ?? null,
+            communityScore: 0,
+            listRank: null,
+          }}
+          onClose={() => setShowRatingModal(false)}
+        />
+      )}
     </div>
   );
 }

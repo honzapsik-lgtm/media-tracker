@@ -28,8 +28,17 @@ export default async function ProfilePage() {
 
   if (!user) redirect("/");
   
+  const listItems = await prisma.userListItem.findMany({
+    where: { list: { user_id: session.user.id } },
+    select: { media_id: true }
+  });
+  const userListMediaIds = new Set(listItems.map(i => i.media_id));
+
   const badges = user.badges || [];
-  const formattedData = user.ratings.map(formatProfileRating);
+  const formattedData = user.ratings.map(r => ({
+    ...formatProfileRating(r),
+    inUserList: userListMediaIds.has(r.media_id)
+  }));
   const totalCount = user._count.ratings;
   const statsCache = user.stats_cache || [];
 

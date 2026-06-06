@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { MediaItem } from "@/types";
+import MediaActionMenu from "./MediaActionMenu";
 
 const getScoreColor = (score: number | null | undefined) => {
   if (score === null || score === undefined) return "text-gray-500";
@@ -71,6 +72,9 @@ export default function MediaCardHorizontal({ item, rankPosition, showTotalRatin
           <p className={`font-black text-base ${getScoreColor(item.communityScore)}`}>
             {item.communityScore ? `${item.communityScore}%` : 'N/A'}
           </p>
+        </div>
+        <div className="shrink-0 pl-2 border-l border-gray-800 ml-2">
+          <MediaActionMenu item={item} />
         </div>
       </div>
     </Link>

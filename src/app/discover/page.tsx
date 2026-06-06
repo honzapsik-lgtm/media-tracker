@@ -61,6 +61,7 @@ export default async function DiscoverPage({
                     ...item,
                     communityScore: cScore || null,
                     listRank: gRank || null,
+                    releaseDate: item.releaseDate ?? null,
                   }} 
                 />
               );

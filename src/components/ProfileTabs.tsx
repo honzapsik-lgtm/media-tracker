@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import Top100Ranker from "@/components/Top100Ranker";
+import CustomListsManager from "@/components/CustomListsManager";
 import MediaCardProfileHorizontal from "@/components/MediaCardProfileHorizontal";
 import { BADGE_DICTIONARY } from "@/components/ProfileHeader";
 
@@ -23,6 +23,9 @@ export interface ProfileItem {
   image: string | null;
   type: string;
   rankPosition: number | null;
+  inUserList?: boolean;
+  hasRated?: boolean;
+  releaseDate?: string | null;
 }
 
 interface UserBadge {
@@ -198,7 +201,7 @@ export default function ProfileTabs({
         <div className={`transition-opacity duration-300 ${isLoading ? 'opacity-50' : 'opacity-100'}`}>
           <div className="space-y-2">
             {data.map((item) => (
-              <MediaCardProfileHorizontal key={item.mediaId} item={item} />
+              <MediaCardProfileHorizontal key={item.mediaId} item={item} viewContext="ratings" />
             ))}
           </div>
           {renderPagination()}
@@ -232,7 +235,7 @@ export default function ProfileTabs({
         </div>
       )}
 
-      {activeTab === 'top100' && <Top100Ranker />}
+      {activeTab === 'top100' && <CustomListsManager />}
 
       {activeTab === 'stats' && (
         <div className="grid md:grid-cols-2 gap-8">
