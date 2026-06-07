@@ -6,7 +6,7 @@ export const RankingConfig = {
   CONVERGENCE_THRESHOLD: 0.00001,
 
   // Post-Processing Settings
-  MIN_LIST_APPEARANCES: 20, // Minimum number of lists an item must appear in to be considered for global ranking
+  MIN_LIST_APPEARANCES: 1, // Minimum number of lists an item must appear in to be considered for global ranking
 
   // Emotional Gap Multiplier Settings
   // Assumes explicit rating scores are out of 100
