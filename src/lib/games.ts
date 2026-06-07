@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { MediaItem } from '../types';
+import { MediaItem, MediaCredit } from '../types';
 import { readApiCache, timeProviderFetch, writeApiCache } from '@/lib/api-cache';
 import { prisma } from '@/lib/prisma';
 const SEARCH_CACHE_TTL_SECONDS = 24 * 60 * 60;
@@ -102,6 +102,28 @@ export async function getGameDetails(id: string) {
   // RAWG provides HTML in their description, so we strip it out for clean text
   const cleanDescription = data.description_raw || data.description.replace(/<[^>]*>?/gm, '');
 
+  const credits: MediaCredit[] = [];
+  if (data.developers) {
+    data.developers.forEach((d: any) => {
+      credits.push({
+        id: `rawg-creator-${d.id}`,
+        name: d.name,
+        role: 'Developer',
+        image: d.image_background || null
+      });
+    });
+  }
+  if (data.publishers) {
+    data.publishers.forEach((p: any) => {
+      credits.push({
+        id: `rawg-creator-${p.id}`,
+        name: p.name,
+        role: 'Publisher',
+        image: p.image_background || null
+      });
+    });
+  }
+
   const result = {
     id: cacheId,
     title: data.name,
@@ -118,10 +140,8 @@ export async function getGameDetails(id: string) {
     trailerUrl: null, // We will leave this null for games for now
     cast: [],
     seasons: null,
-    director: null,
-    writer: null,
-    music: null,
-    creator: null
+    credits
+
   };
 
   const expiresAt = new Date();

@@ -8,3 +8,20 @@ export interface MediaItem {
   listRank?: number | null;
   totalRatings?: number | null;
 }
+
+export interface MediaCredit {
+  id: string;
+  name: string;
+  role: string;
+  image: string | null;
+}
+
+export interface PersonProfile {
+  id: string;
+  name: string;
+  bio: string | null;
+  image: string | null;
+  birthDate: string | null;
+  deathDate: string | null;
+  credits: MediaItem[];
+}

@@ -35,7 +35,7 @@ async function processMediaType(mediaType: string) {
   let listCount = 0;
 
   while (true) {
-    const batch = await prisma.userList.findMany({
+    const batch: any[] = await prisma.userList.findMany({
       where: { media_type: mediaType },
       take: 1000,
       skip: cursor ? 1 : 0,

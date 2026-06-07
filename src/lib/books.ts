@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { MediaItem } from '../types';
+import { MediaItem, MediaCredit } from '../types';
 import { readApiCache, timeProviderFetch, writeApiCache } from '@/lib/api-cache';
 import { prisma } from '@/lib/prisma';
 const SEARCH_CACHE_TTL_SECONDS = 24 * 60 * 60;
@@ -118,6 +118,18 @@ export async function getBookDetails(id: string) {
     // Safety Net 2: Ensure the data object actually exists before mapping
     if (!data) return null;
 
+    const credits: MediaCredit[] = [];
+    if (data.authors) {
+      data.authors.forEach((a: any) => {
+        credits.push({
+          id: `jikan-person-${a.mal_id}`,
+          name: a.name,
+          role: 'Author',
+          image: null,
+        });
+      });
+    }
+
     const result = {
       id: cacheId,
       title: data.title_english || data.title,
@@ -134,10 +146,7 @@ export async function getBookDetails(id: string) {
       trailerUrl: data.trailer?.embed_url || null, // Jikan actually provides anime/manga promo trailers!
       cast: [],
       seasons: null,
-      director: null,
-      writer: data.authors && data.authors.length > 0 ? data.authors[0].name : null,
-      music: null,
-      creator: null
+      credits
     };
 
     const expiresAt = new Date();

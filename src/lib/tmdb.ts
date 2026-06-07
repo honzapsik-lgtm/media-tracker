@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { MediaItem } from '@/types';
+import { MediaItem, MediaCredit } from '@/types';
 import { readApiCache, timeProviderFetch, writeApiCache } from '@/lib/api-cache';
 import { prisma } from '@/lib/prisma';
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
@@ -158,11 +158,35 @@ export async function getTMDbDetails(id: string, type: 'movie' | 'tv') {
   })) || [];
 
   // THE NEW CREW SEARCH LOGIC:
+  const credits: MediaCredit[] = [];
   const crew = data.credits?.crew || [];
-  const director = crew.find((c: any) => c.job === 'Director')?.name || null;
-  const writer = crew.find((c: any) => c.job === 'Screenplay' || c.job === 'Writer')?.name || null;
-  const music = crew.find((c: any) => c.job === 'Original Music Composer' || c.job === 'Music')?.name || null;
-  const creator = data.created_by && data.created_by.length > 0 ? data.created_by.map((c: any) => c.name).join(', ') : null;  
+
+  crew.forEach((c: any) => {
+    if (['Director', 'Screenplay', 'Writer', 'Original Music Composer', 'Music'].includes(c.job)) {
+      // De-duplicate if needed, but for now just push
+      if (!credits.find(existing => existing.id === `tmdb-person-${c.id}` && existing.role === c.job)) {
+        credits.push({
+          id: `tmdb-person-${c.id}`,
+          name: c.name,
+          role: c.job === 'Screenplay' ? 'Writer' : (c.job === 'Original Music Composer' ? 'Music' : c.job),
+          image: c.profile_path ? `https://image.tmdb.org/t/p/w200${c.profile_path}` : null,
+        });
+      }
+    }
+  });
+
+  if (data.created_by) {
+    data.created_by.forEach((c: any) => {
+      if (!credits.find(existing => existing.id === `tmdb-person-${c.id}` && existing.role === 'Creator')) {
+        credits.push({
+          id: `tmdb-person-${c.id}`,
+          name: c.name,
+          role: 'Creator',
+          image: c.profile_path ? `https://image.tmdb.org/t/p/w200${c.profile_path}` : null,
+        });
+      }
+    });
+  }
   
   const result = {
     id: cacheId,
@@ -179,10 +203,7 @@ export async function getTMDbDetails(id: string, type: 'movie' | 'tv') {
     cast: fullCast,
     seasons: data.seasons || null,
     
-    creator,
-    director,
-    writer,
-    music
+    credits
   };
 
   const expiresAt = new Date();

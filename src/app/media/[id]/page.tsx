@@ -164,35 +164,16 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
             </div>
 
             {/* DYNAMIC CREW GRID */}
-            <div className="flex flex-wrap gap-x-10 gap-y-4 py-5 border-y border-gray-800/60 mb-6">
-              {mediaDetails.director && (
-                <div className="flex flex-col">
-                  <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black mb-1">Director</span>
-                  <span className="text-sm font-bold text-gray-200">{mediaDetails.director}</span>
-                </div>
-              )}
-              
-              {mediaDetails.writer && (
-                <div className="flex flex-col">
-                  <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black mb-1">Writer / Script</span>
-                  <span className="text-sm font-bold text-gray-200">{mediaDetails.writer}</span>
-                </div>
-              )}
-
-              {mediaDetails.music && (
-                <div className="flex flex-col">
-                  <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black mb-1">Music / Score</span>
-                  <span className="text-sm font-bold text-gray-200">{mediaDetails.music}</span>
-                </div>
-              )}
-
-              {mediaDetails.creator && (
-                <div className="flex flex-col">
-                  <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black mb-1">Creator / Author</span>
-                  <span className="text-sm font-bold text-gray-200">{mediaDetails.creator}</span>
-                </div>
-              )}
-            </div>
+            {mediaDetails.credits && mediaDetails.credits.length > 0 && (
+              <div className="flex flex-wrap gap-x-10 gap-y-6 py-5 border-y border-gray-800/60 mb-6">
+                {mediaDetails.credits.map((credit: any) => (
+                  <Link key={`${credit.id}-${credit.role}`} href={`/person/${credit.id}`} className="flex flex-col group">
+                    <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black mb-1 group-hover:text-blue-400 transition-colors">{credit.role}</span>
+                    <span className="text-sm font-bold text-gray-200 group-hover:text-white transition-colors">{credit.name}</span>
+                  </Link>
+                ))}
+              </div>
+            )}
 
             <ExpandableText text={mediaDetails.description} maxLength={300} />
             

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 
 interface Actor {
   id: number;
@@ -33,17 +34,17 @@ export default function ExpandableCast({ cast }: { cast: Actor[] }) {
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
         {visibleCast.map((actor) => (
-          <div key={actor.id} className="flex items-center gap-4 bg-gray-900/50 p-3 rounded-xl border border-gray-800/50 hover:bg-gray-800 transition-colors">
+          <Link href={`/person/tmdb-person-${actor.id}`} key={actor.id} className="flex items-center gap-4 bg-gray-900/50 p-3 rounded-xl border border-gray-800/50 hover:bg-gray-800 hover:border-blue-500/50 transition-all group">
             {actor.image ? (
-              <img src={actor.image} alt={actor.name} className="w-14 h-14 rounded-full object-cover shadow-md border border-gray-700" />
+              <img src={actor.image} alt={actor.name} className="w-14 h-14 rounded-full object-cover shadow-md border border-gray-700 group-hover:border-blue-500 transition-colors" />
             ) : (
-              <div className="w-14 h-14 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center text-xs text-gray-500">N/A</div>
+              <div className="w-14 h-14 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center text-xs text-gray-500 group-hover:border-blue-500 transition-colors">N/A</div>
             )}
             <div className="flex-1 min-w-0">
-              <p className="font-semibold text-sm text-gray-200 truncate">{actor.name}</p>
+              <p className="font-semibold text-sm text-gray-200 truncate group-hover:text-blue-400 transition-colors">{actor.name}</p>
               <p className="text-xs text-gray-500 truncate">{actor.character}</p>
             </div>
-          </div>
+          </Link>
         ))}
       </div>
     </div>
