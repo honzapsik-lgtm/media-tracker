@@ -4,7 +4,6 @@ import { PERF_WARN_THRESHOLD_MS } from "@/lib/admin-constants";
 import { awardBadges, updateUserStatsCache } from "@/lib/media-db";
 import { appLog, timeOperation } from "@/lib/logger";
 import { claimPendingJobs, completeJob, failJob } from "@/lib/jobs";
-import { recalculateEloForMediaType } from "@/lib/elo";
 import { getOrCreateRequestId } from "@/lib/request-id";
 
 type JobPayload = {
@@ -51,17 +50,6 @@ async function processJob(job: { id: string; type: string; payload: unknown }, r
       slowThresholdMs: PERF_WARN_THRESHOLD_MS,
       metadata: { source: "processJob", workerId, jobId: job.id, reason: payload.reason },
     }, () => updateUserStatsCache(payload.userId as string, payload.mediaType as string, payload.reason));
-  } else if (job.type === "recalculate_elo") {
-    if (!payload.mediaType) {
-      throw new Error("recalculate_elo job requires mediaType");
-    }
-    await timeOperation({
-      event: "worker.job.recalculate_elo",
-      requestId,
-      mediaType: payload.mediaType,
-      slowThresholdMs: PERF_WARN_THRESHOLD_MS,
-      metadata: { source: "processJob", workerId, jobId: job.id },
-    }, () => recalculateEloForMediaType(payload.mediaType as string));
   } else {
     throw new Error(`Unknown job type: ${job.type}`);
   }

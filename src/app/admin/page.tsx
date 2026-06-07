@@ -138,6 +138,20 @@ export default async function AdminPage() {
               Enter a Media ID to inspect provider cache data, force cache clears, and debug tracking stats.
             </p>
           </Link>
+
+          <div className="rounded-lg border border-purple-500/40 bg-purple-900/20 p-5 transition-colors hover:border-purple-400">
+            <h2 className="mb-4 font-black text-gray-100">Global Rankings</h2>
+            <p className="mb-4 text-sm text-gray-400">
+              Trigger the iterative Rank Aggregation engine to calculate the global leaderboards based on custom lists.
+              <br />
+              <span className="mt-2 block text-xs text-purple-300 font-bold">// TODO: Set this to run automatically daily instead of manual trigger.</span>
+            </p>
+            <form action="/api/admin/ranking" method="post">
+              <button className="rounded border border-purple-500/40 px-4 py-2 text-sm font-bold text-purple-300 hover:bg-purple-900/40 hover:text-purple-100">
+                Run Rank Aggregation
+              </button>
+            </form>
+          </div>
         </div>
 
         <section className="rounded-lg border border-gray-800 bg-gray-900 p-5">

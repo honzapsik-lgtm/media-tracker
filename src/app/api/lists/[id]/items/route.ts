@@ -63,13 +63,6 @@ export async function POST(
       }
     });
 
-    await enqueueJob({
-      type: "recalculate_elo",
-      payload: { mediaType: list.media_type },
-      dedupeKey: `recalculate_elo_${list.media_type}`,
-      requestId,
-    });
-
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (error) {
     await appLog({
