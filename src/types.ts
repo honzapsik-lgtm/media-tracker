@@ -7,6 +7,9 @@ export interface MediaItem {
   communityScore?: number | null;
   listRank?: number | null;
   totalRatings?: number | null;
+  originalLanguage?: string;
+  genreIds?: number[];
+  origin?: string;
 }
 
 export interface MediaCredit {

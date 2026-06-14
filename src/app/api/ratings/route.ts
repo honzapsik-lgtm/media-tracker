@@ -1,7 +1,7 @@
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { Prisma } from "@prisma/client";
+import { Prisma, MediaType } from "@prisma/client";
 import { authOptions } from "@/lib/auth";
 import { PERF_WARN_THRESHOLD_MS } from "@/lib/admin-constants";
 import { enqueueJob } from "@/lib/jobs";
@@ -67,7 +67,9 @@ export async function POST(request: Request) {
 
   const mediaId = body.mediaId;
   const score = body.score;
-  const mediaType = body.mediaType || inferMediaType(mediaId);
+  const rawMediaType: any = body.mediaType || inferMediaType(mediaId);
+  let mediaType = (typeof rawMediaType === "string" ? rawMediaType.toUpperCase() : rawMediaType) as MediaType;
+  if (mediaType === ("SEASON" as any)) mediaType = "SHOW";
   const criteriaScores = body.isDeepReview ? body.criteriaScores ?? {} : {};
 
   const totalMetadata = {

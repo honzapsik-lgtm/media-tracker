@@ -2,7 +2,7 @@ import "dotenv/config";
 import { prisma } from "../src/lib/prisma";
 import { RankingConfig } from "../src/config/ranking";
 
-const MEDIA_TYPES = ['movie', 'show', 'season', 'episode', 'game', 'manga'];
+const MEDIA_TYPES = ['SHOW', 'MOVIE', 'GAME', 'MANGA'];
 
 // Helper to calculate edge weight based on emotional gap and time decay
 function calculateEdgeWeight(gapMultiplier: number, updatedAt: Date): number {
@@ -17,7 +17,7 @@ function calculateEdgeWeight(gapMultiplier: number, updatedAt: Date): number {
   return gapMultiplier * timeDecay;
 }
 
-async function processMediaType(mediaType: string) {
+async function processMediaType(mediaType: any) {
   console.log(`\n--- Processing media_type: ${mediaType} ---`);
   
   // Global Adjacency Map for this media type

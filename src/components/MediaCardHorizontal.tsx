@@ -18,8 +18,9 @@ interface MediaCardHorizontalProps {
 }
 
 export default function MediaCardHorizontal({ item, rankPosition, showTotalRatings }: MediaCardHorizontalProps) {
+  const targetId = item.origin === 'ANILIST' ? `anilist-${item.id}` : item.id;
   return (
-    <Link href={`/media/${item.id}`} className="flex items-center gap-4 bg-gray-900 border border-gray-800 p-3 rounded-xl hover:bg-gray-800 hover:border-gray-700 transition-all group">
+    <Link href={`/media/${targetId}`} className="flex items-center gap-4 bg-gray-900 border border-gray-800 p-3 rounded-xl hover:bg-gray-800 hover:border-gray-700 transition-all group">
       {/* Optional Left Position Number (for Rankings) */}
       {rankPosition !== undefined && (
         <div className="w-12 shrink-0 text-center font-black text-2xl text-gray-600 group-hover:text-blue-500 transition-colors">

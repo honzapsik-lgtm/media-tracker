@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { MediaType } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { PERF_WARN_THRESHOLD_MS } from "@/lib/admin-constants";
 import { authOptions } from "@/lib/auth";
@@ -20,7 +21,7 @@ async function queueUserStatsUpdate(
   userId: string,
   mediaId: string,
   requestId: string,
-  mediaType?: string | null
+  mediaType?: MediaType | null
 ) {
   await enqueueJob({
     type: "update_user_stats",
@@ -69,7 +70,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "mediaId is required" }, { status: 400 });
   }
 
-  const mediaType = body.type || inferMediaType(body.mediaId);
+  const mediaType: MediaType = (body.type as MediaType) || inferMediaType(body.mediaId);
   const item = await timeOperation({
     event: "watchlist.mutation",
     requestId,
@@ -125,7 +126,7 @@ export async function PATCH(request: Request) {
     requestId,
     userId: session.user.id,
     mediaId: body.mediaId,
-    mediaType: body.type || inferMediaType(body.mediaId),
+    mediaType: (body.type as MediaType) || inferMediaType(body.mediaId),
     slowThresholdMs: PERF_WARN_THRESHOLD_MS,
     metadata: {
       source: "watchlist.PATCH",

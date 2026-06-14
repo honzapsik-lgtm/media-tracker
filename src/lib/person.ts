@@ -23,9 +23,6 @@ export async function getPersonDetails(id: string): Promise<PersonProfile | null
   } else if (id.startsWith('rawg-creator-')) {
     result = await fetchRAWGPerson(id);
     provider = 'rawg';
-  } else if (id.startsWith('jikan-person-')) {
-    result = await fetchJikanPerson(id);
-    provider = 'jikan';
   }
 
   if (result) {
@@ -138,54 +135,3 @@ async function fetchRAWGPerson(id: string): Promise<PersonProfile | null> {
   };
 }
 
-async function fetchJikanPerson(id: string): Promise<PersonProfile | null> {
-  const nativeId = id.replace('jikan-person-', '');
-
-  const res = await timeProviderFetch({
-    provider: 'jikan',
-    cacheId: id,
-    operation: 'jikan.person',
-    fetcher: () => fetch(
-      `https://api.jikan.moe/v4/people/${nativeId}/full`,
-      { next: { revalidate: 3600 } }
-    ),
-  });
-
-  if (!res.ok) return null;
-  const payload = await res.json();
-  const data = payload.data;
-  if (!data) return null;
-
-  const credits: MediaItem[] = [];
-  const seen = new Set<string>();
-
-  // Only map manga credits as per user instruction.
-  if (data.manga) {
-    for (const item of data.manga) {
-      if (credits.length >= 50) break;
-      const manga = item.manga;
-      const mangaId = `manga-${manga.mal_id}`;
-      
-      if (!seen.has(mangaId)) {
-        seen.add(mangaId);
-        credits.push({
-          id: mangaId,
-          title: manga.title,
-          type: 'manga',
-          image: manga.images?.webp?.image_url || manga.images?.jpg?.image_url || null,
-          releaseDate: 'N/A'
-        });
-      }
-    }
-  }
-
-  return {
-    id,
-    name: data.name,
-    bio: data.about || null,
-    image: data.images?.jpg?.image_url || null,
-    birthDate: data.birthday ? new Date(data.birthday).toISOString().split('T')[0] : null,
-    deathDate: null,
-    credits,
-  };
-}

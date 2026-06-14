@@ -9,7 +9,9 @@ import { getMediaStats, getDeepCriteriaRows, getListRank, calculateCriteriaAvera
 import TextReviewEditor from "@/components/TextReviewEditor";
 import { prisma } from "@/lib/prisma";
 import { CRITERIA_CONFIG } from "@/lib/constants";
-
+import { getEpisodeCrew } from "@/lib/credits-parser";
+import ExpandableAniListCast from "@/components/ExpandableAniListCast";
+import { StaffGrid } from "@/components/StaffGrid";
 export default async function EpisodePage({
   params,
 }: {
@@ -22,20 +24,94 @@ export default async function EpisodePage({
   const { id, seasonNumber, episodeNumber } = await params;
 
   const parts = id.split("-");
-  if (parts[0] !== "tmdb" || parts[1] !== "tv") notFound();
-
-  const tmdbId = parts[2];
+  const provider = parts[0];
   const seasonNum = parseInt(seasonNumber, 10);
   const epNum = parseInt(episodeNumber, 10);
   if (Number.isNaN(seasonNum) || Number.isNaN(epNum)) notFound();
 
-  const episodes: Episode[] = await getSeasonEpisodes(tmdbId, seasonNum);
-  const episode = episodes.find((ep) => ep.episode_number === epNum);
-  if (!episode) notFound();
+  let episodes: Episode[] = [];
+  let episode: Episode | null = null;
+  let showTitle = "";
+  let episodeFullTitle = "";
+  let episodeMediaId = "";
+  let episodeCrew: any = null;
+  let episodeCastData: any = null;
+  let showDetails: any = null;
 
-  const showDetails = await getTMDbDetails(tmdbId, "tv");
-  const showTitle = showDetails?.title || "Unknown Show";
-  const episodeFullTitle = `${showTitle} - S${seasonNum} E${episode.episode_number} - ${episode.name}`;
+  if (provider === "tmdb" && parts[1] === "tv") {
+    const tmdbId = parts[2];
+    episodes = await getSeasonEpisodes(tmdbId, seasonNum);
+    episode = episodes.find((ep) => ep.episode_number === epNum) || null;
+    if (!episode) notFound();
+
+    showDetails = await getTMDbDetails(tmdbId, "tv");
+    showTitle = showDetails?.title || "Unknown Show";
+    episodeFullTitle = `${showTitle} - S${seasonNum} E${episode.episode_number} - ${episode.name}`;
+    episodeMediaId = `${id}-s${seasonNum}-e${epNum}`;
+  } else {
+    // anilist path
+    const { getAnilistDetails } = await import('@/lib/anilist');
+    const localMedia = await prisma.media.findUnique({ where: { id: id }, include: { seasons: true } });
+    if (!localMedia || !localMedia.anilistId) notFound();
+
+    const rootData = await getAnilistDetails(localMedia.anilistId);
+    showTitle = localMedia.title || rootData?.title?.english || rootData?.title?.romaji || "Unknown Show";
+
+    let seasonData = null;
+    if (seasonNum === localMedia.anilistId) {
+      seasonData = rootData;
+    } else {
+      seasonData = await getAnilistDetails(seasonNum);
+      if (!seasonData) notFound();
+    }
+
+    const seasonEpisodeCount = seasonData?.episodes || 0;
+    if (epNum < 1 || epNum > seasonEpisodeCount) notFound();
+
+    episodes = Array.from({ length: seasonEpisodeCount }, (_, i) => {
+      const ep = seasonData.streamingEpisodes?.[i];
+      if (ep) {
+        return {
+          id: i + 1,
+          name: ep.title,
+          episode_number: i + 1,
+          overview: "",
+          image: ep.thumbnail || null,
+          air_date: "",
+          runtime: seasonData.duration || 0,
+          globalScore: 0
+        };
+      }
+      return {
+        id: i + 1,
+        name: `Episode ${i + 1}`,
+        episode_number: i + 1,
+        overview: "",
+        image: null,
+        air_date: "",
+        runtime: seasonData.duration || 0,
+        globalScore: 0
+      };
+    });
+
+    episode = episodes.find((ep) => ep.episode_number === epNum) || null;
+    if (!episode) notFound();
+
+    const seasonLabel = seasonData.title?.english || seasonData.title?.romaji || `Season`;
+    episodeFullTitle = `${seasonLabel} - Episode ${epNum}`;
+    episodeMediaId = `${id}-s${seasonNum}-e${epNum}`;
+
+    const seasonRecord = localMedia.seasons.find((s: any) => s.anilistId === seasonNum);
+    let rawStaffData;
+    if (seasonNum === localMedia.anilistId) {
+      rawStaffData = localMedia.staffData || seasonData.staff;
+      episodeCastData = localMedia.castData || seasonData.characters;
+    } else {
+      rawStaffData = seasonRecord?.staffData || seasonData.staff;
+      episodeCastData = seasonRecord?.castData || seasonData.characters;
+    }
+    episodeCrew = getEpisodeCrew(rawStaffData, epNum);
+  }
 
   const sortedEpisodes = [...episodes].sort(
     (a, b) => a.episode_number - b.episode_number
@@ -50,7 +126,6 @@ export default async function EpisodePage({
       ? sortedEpisodes[currentIndex + 1]
       : null;
 
-  const episodeMediaId = `${id}-s${seasonNum}-e${epNum}`;
   const [stats, placementRank, reviews, globalData] = await Promise.all([
     getMediaStats(episodeMediaId),
     getListRank(episodeMediaId),
@@ -148,39 +223,45 @@ export default async function EpisodePage({
               </div>
             </div>
 
-            {/* DYNAMIC CREW GRID */}
-            <div className="flex flex-wrap gap-x-10 gap-y-4 py-5 border-y border-gray-800/60 mb-6">
-              {showDetails.director && (
-                <div className="flex flex-col">
-                  <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black mb-1">Director</span>
-                  <span className="text-sm font-bold text-gray-200">{showDetails.director}</span>
-                </div>
-              )}
-              
-              {showDetails.writer && (
-                <div className="flex flex-col">
-                  <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black mb-1">Writer / Script</span>
-                  <span className="text-sm font-bold text-gray-200">{showDetails.writer}</span>
-                </div>
-              )}
+            {/* DYNAMIC EPISODE CREW GRID */}
+            {episodeCrew && (episodeCrew.primary?.length > 0 || episodeCrew.secondary?.length > 0) ? (
+              <StaffGrid 
+                primaryStaff={episodeCrew.primary || []} 
+                secondaryStaff={episodeCrew.secondary || []} 
+              />
+            ) : showDetails ? (
+              <div className="flex flex-wrap gap-x-10 gap-y-6 py-5 border-y border-gray-800/60 mb-6 mt-8">
+                {showDetails.director && (
+                  <div className="flex flex-col">
+                    <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black mb-1">Director</span>
+                    <span className="text-sm font-bold text-gray-200">{showDetails.director}</span>
+                  </div>
+                )}
+                {showDetails.writer && (
+                  <div className="flex flex-col">
+                    <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black mb-1">Writer / Script</span>
+                    <span className="text-sm font-bold text-gray-200">{showDetails.writer}</span>
+                  </div>
+                )}
+                {showDetails.music && (
+                  <div className="flex flex-col">
+                    <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black mb-1">Music / Score</span>
+                    <span className="text-sm font-bold text-gray-200">{showDetails.music}</span>
+                  </div>
+                )}
+                {showDetails.creator && (
+                  <div className="flex flex-col">
+                    <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black mb-1">Creator / Author</span>
+                    <span className="text-sm font-bold text-gray-200">{showDetails.creator}</span>
+                  </div>
+                )}
+              </div>
+            ) : null}
 
-              {showDetails.music && (
-                <div className="flex flex-col">
-                  <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black mb-1">Music / Score</span>
-                  <span className="text-sm font-bold text-gray-200">{showDetails.music}</span>
-                </div>
-              )}
-
-              {showDetails.creator && (
-                <div className="flex flex-col">
-                  <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black mb-1">Creator / Author</span>
-                  <span className="text-sm font-bold text-gray-200">{showDetails.creator}</span>
-                </div>
-              )}
+            <div className="mt-8">
+              <h3 className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-3">Episode Overview</h3>
+              <ExpandableText text={episode.overview || "No overview available for this episode."} maxLength={300} />
             </div>
-
-            <ExpandableText text={episode.overview} maxLength={300} />
-
             {/* MASTER STAT BLOCK */}
             <div className="flex flex-wrap gap-8 border-y border-gray-800 py-6 mb-8 mt-8 bg-gray-950/50 rounded-xl px-6">
               <div className="shrink-0">
@@ -228,6 +309,14 @@ export default async function EpisodePage({
             </div>
           </div>
 
+        {/* EPISODE CAST */}
+        {episodeCastData && episodeCastData.edges?.length > 0 && (
+          <div className="pt-8 border-t border-gray-800">
+            <h2 className="text-2xl font-bold mb-6 mt-2">Episode Cast</h2>
+            <ExpandableAniListCast castData={episodeCastData} />
+          </div>
+        )}
+
         {/* RESTORED REVIEWS SECTION */}
         <div className="mt-8 pt-12 border-t border-gray-800">
           <h2 className="text-3xl font-bold mb-8">Community Reviews</h2>
@@ -237,7 +326,7 @@ export default async function EpisodePage({
                 <div className="text-center py-16 bg-gray-900/30 rounded-2xl border border-gray-800 border-dashed"><p className="text-gray-400 text-lg">No reviews yet. Be the first to review!</p></div>
               ) : (
                 <div className="grid md:grid-cols-2 gap-6">
-                  {reviews.map((review, index) => (
+                  {reviews.map((review: any, index: number) => (
                     <div key={index} className="bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl flex flex-col">
                       <div className="flex justify-between items-start mb-4">
                         <div className="flex items-center gap-3">

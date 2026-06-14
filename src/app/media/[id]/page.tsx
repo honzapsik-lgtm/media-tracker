@@ -1,15 +1,19 @@
 import ExpandableCast from "@/components/ExpandableCast";
 import { getTMDbDetails } from "@/lib/tmdb";
 import { getGameDetails } from "@/lib/games";
-import { getBookDetails } from "@/lib/books";
+
 import RatingSlider from "@/components/RatingSlider";
 import TextReviewEditor from "@/components/TextReviewEditor";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import ExpandableText from "@/components/ExpandableText";
 import WatchlistButton from "@/components/WatchlistButton";
+import SyncLoader from "@/components/SyncLoader";
+import ExpandableAniListCast from "@/components/ExpandableAniListCast";
+import { StaffGrid } from '@/components/StaffGrid';
 import { prisma } from "@/lib/prisma";
 import { CRITERIA_CONFIG } from "@/lib/constants";
+import { getMasterCrew, getMasterStudios, getMasterCast } from "@/lib/credits-parser";
 import {
   calculateCriteriaAverages,
   getDeepCriteriaRows,
@@ -17,7 +21,9 @@ import {
   getListRankMap,
   getMediaStats,
   getMediaStatsMap,
+  upsertBaseMedia,
 } from "@/lib/media-db";
+import { getAnilistDetails } from "@/lib/anilist";
 
 
 
@@ -34,7 +40,7 @@ interface TmdbSeasonSummary { id: number; name: string; season_number: number; e
 
 export default async function MediaDetailsPage({ params }: { params: Promise<{ id: string }>; }) {
   const resolvedParams = await params;
-  const mediaId = resolvedParams.id;
+  let mediaId = resolvedParams.id;
   
   const parts = mediaId.split('-');
   
@@ -50,6 +56,7 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
   const provider = parts[0]; 
   
   let mediaDetails = null;
+  let rawData: any = null;
   
   if (provider === 'tmdb') {
     const tmdbType = parts[1] as 'movie' | 'tv'; 
@@ -57,8 +64,75 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
     mediaDetails = await getTMDbDetails(externalId, tmdbType);
   } else if (provider === 'rawg') {
     mediaDetails = await getGameDetails(parts[2]);
-  } else if (provider === 'manga') {
-    mediaDetails = await getBookDetails(parts[1]);
+  } else if (provider === 'anilist') {
+    const extractedId = parseInt(parts[1]);
+    rawData = await getAnilistDetails(extractedId);
+    if (!rawData) return notFound();
+    
+    // Guarantee Master Object exists and enqueue the franchise worker
+    const dbMedia = await upsertBaseMedia(rawData);
+    
+    // Redirect cleanly to the internal CUID!
+    redirect(`/media/${dbMedia.id}`);
+  } else {
+    // Internal Database CUID Resolver
+    const localMedia = await prisma.media.findUnique({ 
+      where: { id: mediaId },
+      include: { 
+        seasons: true, 
+        inverseRelated: true,
+        relatedMedia: {
+          include: { seasons: true, inverseRelated: true }
+        }
+      }
+    });
+    if (!localMedia || !localMedia.anilistId) return notFound();
+    
+    rawData = await getAnilistDetails(localMedia.anilistId);
+    if (!rawData) return notFound();
+    
+    // Aggregation Logic: Collect blobs from root, canon seasons, and canon movies
+    const aggregatedStaff = [localMedia.staffData || rawData.staff];
+    const aggregatedCast = [localMedia.castData];
+    const aggregatedStudio = [localMedia.studioData];
+
+    if (localMedia.seasons) {
+      for (const s of localMedia.seasons) {
+        if (s.staffData) aggregatedStaff.push(s.staffData);
+        if (s.castData) aggregatedCast.push(s.castData);
+        if (s.studioData) aggregatedStudio.push(s.studioData);
+      }
+    }
+    if (localMedia.inverseRelated) {
+      for (const rel of localMedia.inverseRelated) {
+        if (rel.isMainStoryline) {
+          if (rel.staffData) aggregatedStaff.push(rel.staffData);
+          if (rel.castData) aggregatedCast.push(rel.castData);
+          if (rel.studioData) aggregatedStudio.push(rel.studioData);
+        }
+      }
+    }
+
+    mediaDetails = {
+      id: localMedia.id,
+      title: localMedia.title || rawData.title?.english || rawData.title?.romaji || "Unknown Title",
+      type: localMedia.type.toLowerCase(),
+      image: rawData.coverImage?.extraLarge || rawData.coverImage?.large || null,
+      backdrop: rawData.bannerImage || null,
+      description: rawData.description,
+      releaseDate: localMedia.releaseDate || (rawData.startDate?.year ? `${rawData.startDate.year}-${String(rawData.startDate.month || 1).padStart(2, '0')}-${String(rawData.startDate.day || 1).padStart(2, '0')}` : null),
+      globalScore: rawData.averageScore ? rawData.averageScore : 0,
+      runtime: rawData.duration,
+      genres: [],
+      trailerUrl: rawData.trailer?.site === "youtube" ? `https://www.youtube.com/embed/${rawData.trailer.id}` : null,
+      streamingLinks: rawData.externalLinks?.filter((link: any) => link.type === "STREAMING") || [],
+      cast: [],
+      seasons: null,
+      credits: getMasterCrew(aggregatedStaff),
+      castData: getMasterCast(aggregatedCast),
+      studioData: getMasterStudios(aggregatedStudio),
+      localDbMedia: localMedia
+    };
   }
 
   if (!mediaDetails) return notFound();
@@ -72,10 +146,23 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
       where: { media_id: mediaId, review_text: { not: null } },
       select: { score: true, review_text: true, username: true, avatar_url: true, created_at: true },
       orderBy: { created_at: "desc" },
-    }),
+    })
   ]);
 
+  const localDbMedia = mediaDetails.localDbMedia;
+
   const globalCriteriaAverages = calculateCriteriaAverages(globalData);
+
+  const franchiseRoot = localDbMedia?.relatedMedia || localDbMedia;
+  let anilistSeasonNodes: any[] = [];
+  if (franchiseRoot && franchiseRoot.anilistId) {
+    const rawSeasons = franchiseRoot.seasons || [];
+    const seasonAnilistIds = rawSeasons.map((s: any) => s.anilistId).filter(Boolean) as number[];
+    if (seasonAnilistIds.length > 0) {
+      const { fetchAnilistNodes } = await import('@/lib/anilist');
+      anilistSeasonNodes = await fetchAnilistNodes(seasonAnilistIds);
+    }
+  }
 
   const seasonStatsMap: Record<string, number> = {};
   const seasonRankMap: Record<string, number> = {};
@@ -99,6 +186,87 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
 
   const activeCriteriaConfig = CRITERIA_CONFIG[mediaTypeKey] || [];
 
+  let timelineItems: any[] = [];
+  let spinoffItems: any[] = [];
+  const isSyncing = franchiseRoot && franchiseRoot.anilistId && !franchiseRoot.franchiseSyncedAt;
+  const isCanonMovie = !!localDbMedia?.relatedMediaId && mediaTypeKey === "movie";
+  
+  if (franchiseRoot) {
+    const rawSeasons = franchiseRoot.seasons || [];
+    const rawCanonMovies = franchiseRoot.inverseRelated?.filter((m: any) => m.isMainStoryline === true && m.type === 'MOVIE') || [];
+    
+    // For timeline parsing, we want the title of the franchise root
+    const timelineRootTitle = franchiseRoot.title || mediaDetails.title;
+    
+    timelineItems = [
+      {
+        id: franchiseRoot.id,
+        title: timelineRootTitle,
+        episode_count: franchiseRoot.id === localDbMedia?.id ? (rawData?.episodes || 'Unknown') : 'Unknown',
+        _sortTime: franchiseRoot.releaseDate ? new Date(franchiseRoot.releaseDate).getTime() : 0,
+        link: `/media/${franchiseRoot.id}/season/${franchiseRoot.anilistId}`,
+        isMovie: false,
+        statId: `${franchiseRoot.id}-s${franchiseRoot.anilistId}`,
+      },
+      ...rawSeasons.map((s: any, idx: number) => {
+        let nodeTitle = `Season ${idx + 2}`;
+        let nodeEpisodes: number | string = 'Unknown';
+        
+        const fetchedNode = anilistSeasonNodes.find((n: any) => n.id === s.anilistId);
+        if (fetchedNode && (fetchedNode.title?.english || fetchedNode.title?.romaji)) {
+          nodeTitle = fetchedNode.title.english || fetchedNode.title.romaji;
+          nodeEpisodes = fetchedNode.episodes || 'Unknown';
+        }
+
+        return {
+          id: s.id,
+          title: nodeTitle,
+          episode_count: nodeEpisodes,
+          _sortTime: s.releaseDate ? new Date(s.releaseDate).getTime() : Infinity,
+          link: `/media/${franchiseRoot.id}/season/${s.anilistId || idx + 1}`,
+          isMovie: false,
+          statId: `${franchiseRoot.id}-s${s.anilistId || idx + 1}`,
+        };
+      }),
+      ...rawCanonMovies.map((m: any) => ({
+        id: m.id,
+        title: m.title || `Canon Movie`,
+        episode_count: 'Feature',
+        _sortTime: m.releaseDate ? new Date(m.releaseDate).getTime() : Infinity,
+        link: `/media/${m.id}`,
+        isMovie: true,
+        statId: m.id,
+      }))
+    ];
+
+    timelineItems.sort((a, b) => a._sortTime - b._sortTime);
+    spinoffItems = franchiseRoot.inverseRelated?.filter((m: any) => m.isMainStoryline === false) || [];
+  } else if (mediaDetails.type === "show" && mediaDetails.seasons) {
+    timelineItems = (mediaDetails.seasons as any[]).filter((s) => s.season_number > 0).map((s) => ({
+      id: s.id.toString(),
+      title: s.name,
+      episode_count: s.episode_count,
+      _sortTime: Infinity,
+      link: `/media/${mediaId}/season/${s.season_number}`,
+      isMovie: false,
+      statId: `${mediaId}-s${s.season_number}`,
+    }));
+  }
+
+  let totalEpisodes = 0;
+  let totalMovies = 0;
+  let totalRelated = 0;
+
+  if (mediaDetails.type === "show") {
+    if (provider === "tmdb" && mediaDetails.seasons) {
+      totalEpisodes = (mediaDetails.seasons as any[]).filter(s => s.season_number > 0).reduce((sum, s) => sum + (s.episode_count || 0), 0);
+    } else if (timelineItems.length > 0) {
+      totalEpisodes = timelineItems.filter(i => !i.isMovie).reduce((sum, item) => sum + (typeof item.episode_count === 'number' ? item.episode_count : 0), 0);
+      totalMovies = timelineItems.filter(i => i.isMovie).length;
+      totalRelated = spinoffItems.length;
+    }
+  }
+
   return (
     <main className="min-h-screen bg-gray-950 text-white relative pb-24">
       {mediaDetails.backdrop && (
@@ -119,6 +287,21 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
               <div className="w-full aspect-[2/3] bg-gray-900 rounded-2xl border border-gray-800 flex items-center justify-center">No Image</div>
             )}
             <RatingSlider mediaId={mediaId} mediaType={mediaTypeKey} mediaTitle={mediaDetails.title} mediaImage={mediaDetails.image} mediaReleaseDate={mediaDetails.releaseDate} />
+
+            {/* WHERE TO WATCH */}
+            {mediaDetails.streamingLinks && mediaDetails.streamingLinks.length > 0 && (
+              <div className="mt-4 bg-gray-950/50 p-5 rounded-2xl border border-gray-800 shadow-xl">
+                <h3 className="text-sm font-black text-gray-500 uppercase tracking-widest mb-4">Where to Watch</h3>
+                <div className="flex flex-col gap-3">
+                  {mediaDetails.streamingLinks.map((link: any) => (
+                    <a key={link.url} href={link.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 bg-gray-900 hover:bg-gray-800 p-3 rounded-xl border border-gray-800 hover:border-gray-600 transition-colors">
+                      {link.icon ? <img src={link.icon} className="w-6 h-6 object-contain" /> : <div className="w-6 h-6 bg-gray-800 rounded-full"></div>}
+                      <span className="font-bold text-gray-200 text-sm" style={{ color: link.color || '#fff' }}>{link.site}</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="flex-1">
@@ -136,43 +319,89 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
             </div>
 
             {/* NEW METADATA ROW */}
-            <div className="flex items-center gap-3 mt-3 mb-4">
+            <div className="flex flex-wrap items-center gap-3 mt-3 mb-4">
               {mediaDetails.releaseDate && (
                 <span className="text-gray-300 font-bold text-sm">
                   {mediaDetails.releaseDate.split('-')[0]}
                 </span>
               )}
               
-              {mediaDetails.releaseDate && mediaDetails.runtime && (
-                <span className="text-gray-600">•</span>
+              {isSyncing ? (
+                <>
+                  <span className="text-gray-600 hidden sm:inline">•</span>
+                  <div className="flex gap-2">
+                    <div className="h-6 w-24 bg-gray-800 rounded-full animate-pulse"></div>
+                    <div className="h-6 w-20 bg-gray-800 rounded-full animate-pulse"></div>
+                    <div className="h-6 w-24 bg-gray-800 rounded-full animate-pulse"></div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {mediaDetails.type === "show" && totalEpisodes > 0 && (
+                    <>
+                      <span className="text-gray-600 hidden sm:inline">•</span>
+                      <span className="bg-gray-900/80 border border-gray-800 px-3 py-1 rounded-full text-xs font-bold text-gray-400">
+                        {totalEpisodes} episodes
+                      </span>
+                    </>
+                  )}
+
+                  {totalMovies > 0 && (
+                    <>
+                      <span className="bg-gray-900/80 border border-gray-800 px-3 py-1 rounded-full text-xs font-bold text-gray-400">
+                        {totalMovies} {totalMovies === 1 ? 'movie' : 'movies'}
+                      </span>
+                    </>
+                  )}
+
+                  {totalRelated > 0 && (
+                    <>
+                      <span className="bg-gray-900/80 border border-gray-800 px-3 py-1 rounded-full text-xs font-bold text-gray-400">
+                        {totalRelated} related
+                      </span>
+                    </>
+                  )}
+                </>
               )}
 
               {mediaDetails.runtime && (
-                <span className="bg-gray-900/80 border border-gray-800 px-3 py-1 rounded-full text-xs font-bold text-gray-400">
-                  {mediaDetails.runtime} min
-                </span>
-              )}
-
-              {mediaDetails.type === "show" && mediaDetails.seasons && (
                 <>
-                  <span className="text-gray-600">•</span>
+                  <span className="text-gray-600 hidden sm:inline">•</span>
                   <span className="bg-gray-900/80 border border-gray-800 px-3 py-1 rounded-full text-xs font-bold text-gray-400">
-                    {(mediaDetails.seasons as any[]).filter((s: any) => s.season_number > 0).length} seasons
+                    {mediaDetails.type === "show" ? `Avg ep ${mediaDetails.runtime} min` : `${mediaDetails.runtime} min`}
                   </span>
                 </>
               )}
             </div>
 
-            {/* DYNAMIC CREW GRID */}
-            {mediaDetails.credits && mediaDetails.credits.length > 0 && (
-              <div className="flex flex-wrap gap-x-10 gap-y-6 py-5 border-y border-gray-800/60 mb-6">
-                {mediaDetails.credits.map((credit: any) => (
-                  <Link key={`${credit.id}-${credit.role}`} href={`/person/${credit.id}`} className="flex flex-col group">
-                    <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black mb-1 group-hover:text-blue-400 transition-colors">{credit.role}</span>
-                    <span className="text-sm font-bold text-gray-200 group-hover:text-white transition-colors">{credit.name}</span>
-                  </Link>
+            {/* STUDIOS ROW */}
+            {mediaDetails.studioData && mediaDetails.studioData.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                <span className="text-[10px] text-blue-500 uppercase tracking-widest font-black self-center mr-2">Studio</span>
+                {mediaDetails.studioData.map((s: any, i: number, arr: any[]) => (
+                  <span key={s.id || s} className="flex gap-2 items-center">
+                    <span className="text-sm font-bold text-gray-200">{s.name || s}</span>
+                    {i < arr.length - 1 && <span className="text-gray-600 text-xs font-black">•</span>}
+                  </span>
                 ))}
               </div>
+            )}
+
+            {/* DYNAMIC CREW GRID */}
+            {isSyncing ? (
+              <div className="flex flex-wrap gap-x-10 gap-y-6 py-5 border-y border-gray-800/60 mb-6 mt-8">
+                {[1, 2, 3, 4].map(i => (
+                  <div key={i} className="flex flex-col gap-2">
+                    <div className="h-3 w-16 bg-gray-800 rounded animate-pulse"></div>
+                    <div className="h-4 w-24 bg-gray-800 rounded animate-pulse"></div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <StaffGrid 
+                primaryStaff={mediaDetails.credits?.primary || []} 
+                secondaryStaff={mediaDetails.credits?.secondary || []} 
+              />
             )}
 
             <ExpandableText text={mediaDetails.description} maxLength={300} />
@@ -217,40 +446,76 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
               )}
             </div>
 
-            {mediaDetails.type === "show" && mediaDetails.seasons && (
-              <div className="mt-12">
-                <h2 className="text-3xl font-bold mb-8">Seasons</h2>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {(mediaDetails.seasons as TmdbSeasonSummary[]).filter((s) => s.season_number > 0).map((season) => {
-                    const sId = `${mediaId}-s${season.season_number}`;
-                    const cScore = seasonStatsMap[sId];
-                    const gRank = seasonRankMap[sId];
+            {/* TIMELINE SECTION */}
+            {!isCanonMovie && (
+              <div className="mt-12 space-y-12">
+                {(timelineItems.length > 0 || isSyncing) && (
+                    <div>
+                      <h2 className="text-3xl font-bold mb-8">Narrative Timeline</h2>
+                      {isSyncing ? (
+                        <SyncLoader mediaId={localDbMedia.id} />
+                      ) : (
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        {timelineItems.map((item) => {
+                          const cScore = seasonStatsMap[item.statId];
+                          const gRank = seasonRankMap[item.statId];
 
-                    return (
-                      <Link key={season.id} href={`/media/${mediaId}/season/${season.season_number}`} className="bg-gray-900 p-5 rounded-xl border border-gray-800 hover:border-blue-500 hover:bg-gray-800/80 transition-colors text-center block relative overflow-hidden group">
-                        
-                        <div className={`absolute top-2 left-2 text-[10px] font-black px-1.5 py-0.5 rounded border ${cScore ? (cScore >= 75 ? 'bg-green-900/40 text-green-400 border-green-800/50' : cScore >= 50 ? 'bg-blue-900/40 text-blue-400 border-blue-800/50' : 'bg-gray-800 text-gray-400 border-gray-700') : 'bg-gray-950 text-gray-600 border-gray-800'}`}>
-                          ★ {cScore || 'N/A'}
+                          return (
+                            <Link key={item.id} href={item.link} className="bg-gray-900 p-5 rounded-xl border border-gray-800 hover:border-blue-500 hover:bg-gray-800/80 transition-colors text-center block relative overflow-hidden group">
+                              <div className={`absolute top-2 left-2 text-[10px] font-black px-1.5 py-0.5 rounded border ${cScore ? (cScore >= 75 ? 'bg-green-900/40 text-green-400 border-green-800/50' : cScore >= 50 ? 'bg-blue-900/40 text-blue-400 border-blue-800/50' : 'bg-gray-800 text-gray-400 border-gray-700') : 'bg-gray-950 text-gray-600 border-gray-800'}`}>
+                                ★ {cScore || 'N/A'}
+                              </div>
+                              <div className={`absolute top-2 right-2 text-[10px] font-black px-1.5 py-0.5 rounded border ${gRank ? 'bg-blue-900/80 text-blue-400 border-blue-500' : 'bg-gray-900/80 text-gray-500 border-gray-700'}`}>
+                                {gRank ? `#${gRank}` : '# -'}
+                              </div>
+                              <p className="font-bold text-lg mt-3">{item.title}</p>
+                              <p className="text-sm text-gray-400 mt-1">{item.episode_count === 'Feature' ? 'Canon Movie' : `${item.episode_count} Episodes`}</p>
+                            </Link>
+                          );
+                        })}
                         </div>
+                      )}
+                    </div>
+                  )}
 
-                        <div className={`absolute top-2 right-2 text-[10px] font-black px-1.5 py-0.5 rounded border ${gRank ? 'bg-blue-900/80 text-blue-400 border-blue-500' : 'bg-gray-900/80 text-gray-500 border-gray-700'}`}>
-                          {gRank ? `#${gRank}` : '# -'}
-                        </div>
-
-                        <p className="font-bold text-lg mt-3">{season.name}</p>
-                        <p className="text-sm text-gray-400 mt-1">{season.episode_count} Episodes</p>
-                      </Link>
-                    );
-                  })}
+                  {!isSyncing && spinoffItems.length > 0 && (
+                    <div>
+                      <h2 className="text-2xl font-bold mb-6 text-gray-400">Related</h2>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        {spinoffItems.map((m: any) => (
+                          <Link key={m.id} href={`/media/${m.id}`} className="bg-gray-950 p-4 rounded-xl border border-gray-800 hover:border-gray-600 transition-colors block text-center">
+                            <p className="font-bold text-sm text-gray-300 line-clamp-2">{m.title || 'Unknown'}</p>
+                            <p className="text-xs text-gray-500 mt-2 uppercase font-black">{m.type}</p>
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
+              )}
           </div>
         </div>
 
         {/* RESTORED CAST AND TRAILER SECTION */}
         <div className="grid lg:grid-cols-3 gap-12 pt-8 border-t border-gray-800">
-          {mediaDetails.cast?.length > 0 && <ExpandableCast cast={mediaDetails.cast} />}
+          {isSyncing ? (
+            <div className="lg:col-span-2">
+              <h2 className="text-2xl font-bold mb-6 mt-2">Cast</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {[1, 2, 3, 4, 5, 6].map(i => (
+                  <div key={i} className="flex bg-gray-900 rounded-xl overflow-hidden border border-gray-800 h-24 animate-pulse">
+                    <div className="w-16 bg-gray-800"></div>
+                    <div className="flex-1 p-3"></div>
+                    <div className="w-16 bg-gray-800"></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : mediaDetails.castData ? (
+            <ExpandableAniListCast castData={mediaDetails.castData} />
+          ) : mediaDetails.cast?.length > 0 ? (
+            <ExpandableCast cast={mediaDetails.cast} />
+          ) : null}
           {mediaDetails.trailerUrl && (
             <div className="lg:col-span-1">
               <h2 className="text-2xl font-bold mb-6">Trailer</h2>
@@ -270,7 +535,7 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
             <div className="text-center py-16 bg-gray-900/30 rounded-2xl border border-gray-800 border-dashed"><p className="text-gray-400 text-lg">No reviews yet. Be the first to review!</p></div>
           ) : (
             <div className="grid md:grid-cols-2 gap-6">
-              {reviews.map((review, index) => (
+              {reviews.map((review: any, index: number) => (
                 <div key={index} className="bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl flex flex-col">
                   <div className="flex justify-between items-start mb-4">
                     <div className="flex items-center gap-3">

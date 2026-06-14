@@ -1,20 +1,19 @@
 import { getTrendingMovies, getTrendingShows } from '@/lib/tmdb';
 import { getTrendingGames } from '@/lib/games';
-import { getTrendingManga } from '@/lib/books';
+
 import { getListRankMap, getMediaStatsMap } from '@/lib/media-db';
 import SearchBar from '@/components/SearchBar';
 import MediaRow from '@/components/MediaRow';
 import { Suspense } from 'react';
 
 export default async function Home() {
-  const [movies, shows, games, manga] = await Promise.all([
+  const [movies, shows, games] = await Promise.all([
     getTrendingMovies(),
     getTrendingShows(),
-    getTrendingGames(),
-    getTrendingManga()
+    getTrendingGames()
   ]);
 
-  const allItems = [...movies, ...shows, ...games, ...manga];
+  const allItems = [...movies, ...shows, ...games];
   const mediaIds = allItems.map((item) => item.id);
   const [statsMap, rankMap] = await Promise.all([
     getMediaStatsMap(mediaIds),
@@ -30,7 +29,7 @@ export default async function Home() {
   const enhancedMovies = applyStats(movies);
   const enhancedShows = applyStats(shows);
   const enhancedGames = applyStats(games);
-  const enhancedManga = applyStats(manga);
+
 
   return (
     <main className="min-h-screen bg-gray-950 text-white p-8">
@@ -47,7 +46,7 @@ export default async function Home() {
         <MediaRow title="Trending Movies" items={enhancedMovies} />
         <MediaRow title="Trending TV Shows" items={enhancedShows} />
         <MediaRow title="Trending Games" items={enhancedGames} />
-        <MediaRow title="Trending Manga" items={enhancedManga} />
+
       </div>
     </main>
   );

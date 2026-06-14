@@ -5,6 +5,7 @@ import { AdminAuthError, requireAdmin } from "@/lib/admin-auth";
 import { getDatabaseSummary, runDatabaseIntegrityChecks } from "@/lib/admin-database";
 import { appLog } from "@/lib/logger";
 import { createRequestId } from "@/lib/request-id";
+import { NukeButton } from "@/components/admin/NukeButton";
 
 export const dynamic = "force-dynamic";
 
@@ -67,10 +68,15 @@ export default async function AdminDatabasePage() {
     <main className="min-h-screen bg-gray-950 px-8 pb-16 pt-24 text-white">
       <div className="mx-auto max-w-7xl">
         <AdminNav />
-        <div className="mb-8">
-          <h1 className="mb-2 text-4xl font-black">Database Checks</h1>
-          <p className="text-gray-400">These checks are read-only and help identify inconsistent derived data.</p>
-          <p className="mt-2 text-sm text-gray-500">Last refreshed: {lastRefreshed.toLocaleString()}</p>
+        <div className="mb-8 flex items-start justify-between">
+          <div>
+            <h1 className="mb-2 text-4xl font-black">Database Checks</h1>
+            <p className="text-gray-400">These checks are read-only and help identify inconsistent derived data.</p>
+            <p className="mt-2 text-sm text-gray-500">Last refreshed: {lastRefreshed.toLocaleString()}</p>
+          </div>
+          <div>
+            <NukeButton />
+          </div>
         </div>
 
         <div className="mb-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

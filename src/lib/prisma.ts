@@ -2,6 +2,9 @@ import { PrismaClient } from "@prisma/client";
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
 
+// FIX: delete old cached prisma client to force recreation after schema change
+delete (globalThis as any).prisma;
+
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
@@ -18,4 +21,8 @@ const adapter = new PrismaPg(pool);
 export const prisma = globalForPrisma.prisma ?? new PrismaClient({ adapter });
 
 // Cache the connection in development to prevent pool exhaustion
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+if (process.env.NODE_ENV !== "production") {
+  globalForPrisma.prisma = prisma;
+}
+
+// Force reload after schema update!

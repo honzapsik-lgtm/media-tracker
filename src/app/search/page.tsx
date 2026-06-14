@@ -1,6 +1,7 @@
 import { searchTMDb } from "@/lib/tmdb";
-import { searchBooks } from "@/lib/books";
+
 import { searchGames } from "@/lib/games";
+import { searchAniList } from "@/lib/anilist";
 import { getListRankMap, getMediaStatsMap } from '@/lib/media-db';
 import SearchResultsTabs from "@/components/SearchResultsTabs";
 import Link from "next/link";
@@ -15,14 +16,40 @@ export default async function SearchPage({
   const query = resolvedParams.q || "";
   
   // PARALLEL FETCHING: All APIs hit simultaneously
-  const [tmdbResults, books, games] = query 
-    ? await Promise.all([searchTMDb(query), searchBooks(query), searchGames(query)])
+  const [tmdbResultsRaw, games, anilistRaw] = query 
+    ? await Promise.all([searchTMDb(query), searchGames(query), searchAniList(query)])
     : [[], [], []];
 
-  // Combine and sort alphabetically
-  let combinedResults = [...tmdbResults, ...books, ...games].sort((a, b) => 
-    a.title.localeCompare(b.title)
-  );
+  let anilist = anilistRaw;
+
+  // The TMDB Shield
+  const shieldedAnime: any[] = [];
+  const tmdbResults = tmdbResultsRaw.filter((item: any) => {
+    const genres = item.genreIds || item.genre_ids || [];
+    const lang = item.originalLanguage || item.original_language;
+    const isJapaneseAnime = lang === 'ja' && genres.some((g: any) => Number(g) === 16);
+    if (isJapaneseAnime) {
+      shieldedAnime.push(item);
+      return false;
+    }
+    return true;
+  });
+
+  // AniList Typo Fallback: fuzzy matching fallback utilizing TMDB's superior search
+  if (anilist.length === 0 && shieldedAnime.length > 0) {
+    anilist = await searchAniList(shieldedAnime[0].title);
+  }
+
+  // Interleave results (AniList, TMDB, Games)
+  let combinedResults: any[] = [];
+  if (query) {
+    const maxLen = Math.max(tmdbResults.length, games.length, anilist.length);
+    for (let i = 0; i < maxLen; i++) {
+      if (anilist[i]) combinedResults.push(anilist[i]);
+      if (tmdbResults[i]) combinedResults.push(tmdbResults[i]);
+      if (games[i]) combinedResults.push(games[i]);
+    }
+  }
 
   if (combinedResults.length > 0) {
     const mediaIds = combinedResults.map(i => i.id);

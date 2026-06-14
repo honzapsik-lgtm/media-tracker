@@ -1,7 +1,9 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, MediaType } from "@prisma/client";
 import { PERF_WARN_THRESHOLD_MS } from "@/lib/admin-constants";
 import { timeOperation } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
+import { enqueueJob } from "@/lib/jobs";
+import { resolveAniListType } from "@/lib/anilist";
 
 export interface ProfileMediaItem {
   mediaId: string;
@@ -17,17 +19,13 @@ export interface ProfileMediaItem {
   releaseDate?: string | null;
 }
 
-export function inferMediaType(mediaId: string) {
+export function inferMediaType(mediaId: string): MediaType {
   const parts = mediaId.split("-");
-  if (parts[0] === "tmdb" && parts[1] === "movie") return "movie";
-  if (parts[0] === "tmdb" && parts[1] === "tv") {
-    if (parts.some((part) => part.startsWith("e"))) return "episode";
-    if (parts.some((part) => part.startsWith("s"))) return "season";
-    return "show";
-  }
-  if (parts[0] === "rawg") return "game";
-  if (parts[0] === "manga") return "manga";
-  return "unknown";
+  if (parts[0] === "tmdb" && parts[1] === "movie") return "MOVIE" as MediaType;
+  if (parts[0] === "tmdb" && parts[1] === "tv") return "SHOW" as MediaType;
+  if (parts[0] === "rawg") return "GAME" as MediaType;
+  if (parts[0] === "manga") return "MANGA" as MediaType;
+  return "OTHER" as MediaType;
 }
 
 export function formatProfileRating(row: {
@@ -40,7 +38,7 @@ export function formatProfileRating(row: {
   criteria_scores?: any;
   media_release_date?: string | null;
 }): ProfileMediaItem {
-  const type = inferMediaType(row.media_id).toUpperCase();
+  const type = inferMediaType(row.media_id);
 
   return {
     mediaId: row.media_id,
@@ -55,7 +53,9 @@ export function formatProfileRating(row: {
   };
 }
 
-export async function refreshMediaStats(mediaId: string, mediaType = inferMediaType(mediaId)) {
+export async function refreshMediaStats(mediaId: string, mediaTypeParam: MediaType = inferMediaType(mediaId)) {
+  let mediaType = (typeof mediaTypeParam === "string" ? mediaTypeParam.toUpperCase() : mediaTypeParam) as MediaType;
+  if (mediaType === ("SEASON" as any)) mediaType = "SHOW";
   await timeOperation({
     event: "media_stats.refresh",
     mediaId,
@@ -119,13 +119,13 @@ export async function getMediaStatsMap(mediaIds: string[]) {
 export async function getListRank(mediaId: string) {
   const mediaType = inferMediaType(mediaId);
   const ranked = await getRankedMedia(mediaType, "list_rank", 1, 500);
-  const item = ranked.results.find((entry) => entry.media_id === mediaId);
+  const item = ranked.results.find((entry: any) => entry.media_id === mediaId);
   return item?.list_rank ?? null;
 }
 
 export async function getListRankMap(mediaIds: string[]) {
   const rankMap: Record<string, number> = {};
-  const byType = new Map<string, string[]>();
+  const byType = new Map<any, string[]>();
 
   mediaIds.forEach((id) => {
     const type = inferMediaType(id);
@@ -135,7 +135,7 @@ export async function getListRankMap(mediaIds: string[]) {
   await Promise.all(
     [...byType.entries()].map(async ([type, ids]) => {
       const ranked = await getRankedMedia(type, "list_rank", 1, 500);
-      ranked.results.forEach((item) => {
+      ranked.results.forEach((item: any) => {
         if (ids.includes(item.media_id) && item.list_rank) {
           rankMap[item.media_id] = item.list_rank;
         }
@@ -211,11 +211,28 @@ export async function awardBadges(userId: string) {
 }
 
 export async function getRankedMedia(
-  mediaType: string,
+  mediaTypeParam: MediaType,
   sort: string,
   page: number,
   limit: number
 ) {
+  const mediaTypeUpper = typeof mediaTypeParam === "string" ? mediaTypeParam.toUpperCase() : mediaTypeParam;
+
+  let dbMediaType: MediaType = "SHOW";
+  if (mediaTypeUpper === "MOVIE") dbMediaType = "MOVIE";
+  else if (mediaTypeUpper === "GAME") dbMediaType = "GAME";
+  else if (mediaTypeUpper === "MANGA") dbMediaType = "MANGA";
+  else if (mediaTypeUpper === "OTHER") dbMediaType = "OTHER";
+
+  let typeCondition = Prisma.sql`s.media_type = ${dbMediaType}::"MediaType"`;
+  if (mediaTypeUpper === "SEASON") {
+    typeCondition = Prisma.sql`s.media_type = ${dbMediaType}::"MediaType" AND s.id LIKE '%-s%' AND s.id NOT LIKE '%-e%'`;
+  } else if (mediaTypeUpper === "EPISODE") {
+    typeCondition = Prisma.sql`s.media_type = ${dbMediaType}::"MediaType" AND s.id LIKE '%-e%'`;
+  } else if (mediaTypeUpper === "SHOW") {
+    typeCondition = Prisma.sql`s.media_type = ${dbMediaType}::"MediaType" AND s.id NOT LIKE '%-s%' AND s.id NOT LIKE '%-e%'`;
+  }
+  
   type RankedMediaRow = {
     media_id: string;
     media_type: string;
@@ -232,7 +249,7 @@ export async function getRankedMedia(
 
   const { totalCount, results } = await timeOperation({
     event: "ranking.get_ranked_media",
-    mediaType,
+    mediaType: mediaTypeUpper,
     slowThresholdMs: PERF_WARN_THRESHOLD_MS,
     metadata: {
       source: "getRankedMedia",
@@ -247,11 +264,13 @@ export async function getRankedMedia(
           SELECT COUNT(DISTINCT s.id) as count
           FROM media_stats s
           INNER JOIN global_rankings g ON s.id = g.media_id
-          WHERE s.media_type = ${mediaType} AND g.rank IS NOT NULL
+          WHERE ${typeCondition} AND g.rank IS NOT NULL
         `.then(res => Number(res[0].count))
-      : await prisma.mediaStats.count({
-          where: { media_type: mediaType },
-        });
+      : await prisma.$queryRaw<{count: number | bigint}[]>`
+          SELECT COUNT(DISTINCT s.id) as count
+          FROM media_stats s
+          WHERE ${typeCondition}
+        `.then(res => Number(res[0].count));
 
     const orderByClause = sort === "community" 
       ? Prisma.sql`ORDER BY community_average DESC NULLS LAST, total_ratings DESC NULLS LAST` 
@@ -276,7 +295,7 @@ export async function getRankedMedia(
             FROM media_stats s
             LEFT JOIN global_rankings g ON s.id = g.media_id
             LEFT JOIN user_ratings r ON s.id = r.media_id
-            WHERE s.media_type = ${mediaType}
+            WHERE ${typeCondition}
             GROUP BY s.id, s.media_type, s.community_average, s.total_ratings, g.rank, g.elo_score
             HAVING g.rank IS NOT NULL
           )
@@ -300,7 +319,7 @@ export async function getRankedMedia(
             FROM media_stats s
             LEFT JOIN global_rankings g ON s.id = g.media_id
             LEFT JOIN user_ratings r ON s.id = r.media_id
-            WHERE s.media_type = ${mediaType}
+            WHERE ${typeCondition}
             GROUP BY s.id, s.media_type, s.community_average, s.total_ratings, g.rank, g.elo_score
           )
           SELECT * FROM global_rankings_cte
@@ -313,7 +332,7 @@ export async function getRankedMedia(
     return { totalCount, results };
   });
 
-  const formattedResults = results.map((row) => ({
+  const formattedResults = results.map((row: any) => ({
     media_id: row.media_id,
     media_type: row.media_type,
     title: row.title ?? row.media_id,
@@ -331,7 +350,7 @@ export async function getRankedMedia(
   };
 }
 
-export async function updateUserStatsCache(userId: string, mediaType: string, reason?: string) {
+export async function updateUserStatsCache(userId: string, mediaType: MediaType, reason?: string) {
   await timeOperation({
     event: "user_stats_cache.update",
     userId,
@@ -455,7 +474,7 @@ export async function getUserWatchlist(userId: string, page: number, limit: numb
   return { results, count };
 }
 
-export async function getUserRankedList(userId: string, mediaType: string, page: number, limit: number) {
+export async function getUserRankedList(userId: string, mediaType: MediaType, page: number, limit: number) {
   const skip = (page - 1) * limit;
   const [results, count] = await Promise.all([
     prisma.userList.findMany({
@@ -468,3 +487,87 @@ export async function getUserRankedList(userId: string, mediaType: string, page:
   return { results, count };
 }
 
+export async function upsertBaseMedia(rawData: any) {
+  let anilistId = rawData.id;
+  let rootData = rawData;
+  
+  // 1. Traverse backward synchronously to find absolute root to prevent 404s
+  const visitedBackward = new Set<number>();
+  let currentId = anilistId;
+  let currentData = rootData;
+  
+  const { fetchAnilistNodeEdges } = await import('@/lib/anilist');
+  
+  while (true) {
+    if (visitedBackward.has(currentId)) break;
+    visitedBackward.add(currentId);
+    
+    // If we hit an existing root in DB, use it
+    const existingMedia = await prisma.media.findUnique({ where: { anilistId: currentId } });
+    if (existingMedia && existingMedia.isMainStoryline) {
+        break;
+    }
+    
+    let edges = currentData.relations?.edges || [];
+    if (!edges.length) {
+       const fullData = await fetchAnilistNodeEdges(currentId);
+       if (fullData) {
+         currentData = fullData;
+         edges = currentData.relations?.edges || [];
+       }
+    }
+    
+    const parentEdge = edges.find((e: any) => {
+      if (e.relationType === 'PREQUEL' || e.relationType === 'PARENT') {
+        if (e.relationType === 'PARENT' && ['TV', 'TV_SHORT'].includes(currentData.format || '')) return false;
+        if (['TV', 'TV_SHORT'].includes(currentData.format || '')) {
+          if (!['TV', 'TV_SHORT'].includes(e.node?.format || '')) return false;
+        }
+        return true;
+      }
+      return false;
+    });
+    
+    if (parentEdge && parentEdge.node) {
+      currentId = parentEdge.node.id;
+      const nextData = await fetchAnilistNodeEdges(currentId);
+      if (nextData) currentData = nextData;
+      else break;
+    } else {
+      break;
+    }
+  }
+  
+  anilistId = currentId;
+  rootData = currentData;
+
+  const title = rootData.title?.english || rootData.title?.romaji || `AniList ${anilistId}`;
+  
+  const structuralType = resolveAniListType(rootData.format || '', rootData.episodes, rootData.duration);
+  let mediaType: MediaType = "OTHER" as MediaType;
+  if (structuralType === 'SERIALIZED') mediaType = "SHOW" as MediaType;
+  else if (structuralType === 'FEATURE') mediaType = "MOVIE" as MediaType;
+  else if (structuralType === 'MANGA') mediaType = "MANGA" as MediaType;
+
+  const releaseDate = rootData.startDate?.year ? `${rootData.startDate.year}-${String(rootData.startDate.month || 1).padStart(2, '0')}-${String(rootData.startDate.day || 1).padStart(2, '0')}` : null;
+
+  const dbMedia = await prisma.media.upsert({
+    where: { anilistId },
+    update: { title, isMainStoryline: true, releaseDate },
+    create: {
+      anilistId,
+      title,
+      type: mediaType,
+      isMainStoryline: true,
+      releaseDate
+    }
+  });
+
+  await enqueueJob({
+    type: "syncAniListFranchiseTree",
+    payload: { anilistId, internalMediaId: dbMedia.id },
+    dedupeKey: `sync_anilist_${anilistId}`,
+  });
+
+  return dbMedia;
+}

@@ -1,13 +1,17 @@
 import { getSeasonEpisodes } from "@/app/actions";
 import { getTMDbDetails } from "@/lib/tmdb";
 import RatingSlider from "@/components/RatingSlider";
+import EpisodeList from "@/components/EpisodeList";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import ExpandableText from "@/components/ExpandableText";
-import { getListRank, getMediaStats, getDeepCriteriaRows, calculateCriteriaAverages } from "@/lib/media-db";
+import { getMediaStats, getDeepCriteriaRows, getListRank, calculateCriteriaAverages } from "@/lib/media-db";
 import TextReviewEditor from "@/components/TextReviewEditor";
 import { prisma } from "@/lib/prisma";
 import { CRITERIA_CONFIG } from "@/lib/constants";
+import { getSeasonCrew, getMasterStudios } from "@/lib/credits-parser";
+import ExpandableAniListCast from "@/components/ExpandableAniListCast";
+import { StaffGrid } from "@/components/StaffGrid";
 
 export interface Episode {
   id: number;
@@ -47,39 +51,151 @@ export default async function SeasonPage({
 }) {
   const { id, seasonNumber } = await params;
 
+  let showTitle = "";
+  let seasonLabel = "";
+  let seasonPoster: string | null = null;
+  let seasonOverview = "";
+  let seasonAirDate = "";
+  let seasonEpisodeCount: number | null = null;
+  let episodes: Episode[] = [];
+  let nextSeasonNum: string | number | undefined;
+  let prevSeasonNum: string | number | undefined;
+  let seasonMediaId = "";
+  let seasonFullTitle = "";
+  let showDetails: any = null;
+  let seasonDuration: number | null = null;
+  let seasonCredits: any = null;
+  let seasonTrailerUrl: string | null = null;
+  let seasonStreamingLinks: any[] = [];
+  let seasonStudioData: any = null;
+  let seasonCastData: any = null;
+  
   const parts = id.split("-");
-  if (parts[0] !== "tmdb" || parts[1] !== "tv") notFound();
+  const provider = parts[0];
 
-  const tmdbId = parts[2];
-  const seasonNum = parseInt(seasonNumber, 10);
-  if (Number.isNaN(seasonNum) || seasonNum < 0) notFound();
+  if (provider === "tmdb" && parts[1] === "tv") {
+    const tmdbId = parts[2];
+    const seasonNum = parseInt(seasonNumber, 10);
+    if (Number.isNaN(seasonNum) || seasonNum < 0) notFound();
 
-  const showDetails = await getTMDbDetails(tmdbId, "tv");
-  if (!showDetails || showDetails.type !== "show") notFound();
+    showDetails = await getTMDbDetails(tmdbId, "tv");
+    if (!showDetails || showDetails.type !== "show") notFound();
 
-  const episodes: Episode[] = await getSeasonEpisodes(tmdbId, seasonNum);
+    episodes = await getSeasonEpisodes(tmdbId, seasonNum);
 
-  const seasons = (showDetails.seasons ?? []) as TmdbSeasonSummary[];
-  const validSeasonNumbers = seasons
-    .filter((s) => s.season_number > 0)
-    .map((s) => s.season_number)
-    .sort((a, b) => a - b);
+    const seasons = (showDetails.seasons ?? []) as TmdbSeasonSummary[];
+    const validSeasonNumbers = seasons
+      .filter((s) => s.season_number > 0)
+      .map((s) => s.season_number)
+      .sort((a, b) => a - b);
 
-  if (!validSeasonNumbers.includes(seasonNum)) notFound();
+    if (!validSeasonNumbers.includes(seasonNum)) notFound();
 
-  const seasonMeta = seasons.find((s) => s.season_number === seasonNum);
-  const nextSeasonNum = validSeasonNumbers.find((n) => n > seasonNum);
-  const tmdbSeasonScore = seasonMeta?.vote_average
-    ? Math.round(seasonMeta.vote_average * 10)
-    : 0;
+    const seasonMeta = seasons.find((s) => s.season_number === seasonNum);
+    nextSeasonNum = validSeasonNumbers.find((n) => n > seasonNum);
+    prevSeasonNum = validSeasonNumbers.slice().reverse().find((n) => n < seasonNum);
 
-  const seasonPoster = seasonMeta?.poster_path
-    ? `https://image.tmdb.org/t/p/w500${seasonMeta.poster_path}`
-    : showDetails.image;
+    seasonPoster = seasonMeta?.poster_path
+      ? `https://image.tmdb.org/t/p/w500${seasonMeta.poster_path}`
+      : showDetails.image;
 
-  // Exact ID formatting so the DB recognizes it as a show
-  const seasonMediaId = `${id}-s${seasonNum}`;
-  const seasonFullTitle = `${showDetails.title} - ${seasonMeta?.name ?? `Season ${seasonNum}`}`;
+    seasonLabel = seasonMeta?.name ?? `Season ${seasonNum}`;
+    showTitle = showDetails.title;
+    seasonOverview = seasonMeta?.overview || "";
+    seasonAirDate = seasonMeta?.air_date || "";
+    seasonEpisodeCount = seasonMeta?.episode_count ?? null;
+    seasonMediaId = `${id}-s${seasonNum}`;
+    seasonFullTitle = `${showTitle} - ${seasonLabel}`;
+    seasonDuration = showDetails.runtime || null;
+    seasonTrailerUrl = showDetails.trailerUrl || null;
+  } else {
+    // Check if it's an internal AniList CUID
+    const localMedia = await prisma.media.findUnique({ where: { id: id }, include: { seasons: true } });
+    if (!localMedia || !localMedia.anilistId) notFound();
+    
+    // For AniList, `seasonNumber` is actually the AniList ID of the season node!
+    const anilistSeasonId = parseInt(seasonNumber, 10);
+    if (Number.isNaN(anilistSeasonId)) notFound();
+    
+    // We need getAnilistDetails from anilist.ts
+    const { getAnilistDetails } = await import('@/lib/anilist');
+    
+    const rootData = await getAnilistDetails(localMedia.anilistId);
+    if (!rootData) notFound();
+    showTitle = localMedia.title || rootData.title?.english || rootData.title?.romaji || "Unknown Show";
+    
+    let seasonData = null;
+    if (anilistSeasonId === localMedia.anilistId) {
+      seasonData = rootData;
+    } else {
+      seasonData = await getAnilistDetails(anilistSeasonId);
+      if (!seasonData) notFound();
+    }
+    
+    seasonLabel = seasonData.title?.english || seasonData.title?.romaji || `Season`;
+    seasonPoster = seasonData.coverImage?.extraLarge || seasonData.coverImage?.large || rootData.coverImage?.extraLarge || rootData.coverImage?.large || null;
+    seasonOverview = seasonData.description || "";
+    seasonAirDate = seasonData.startDate?.year ? `${seasonData.startDate.year}-${String(seasonData.startDate.month || 1).padStart(2, '0')}-${String(seasonData.startDate.day || 1).padStart(2, '0')}` : "";
+    seasonEpisodeCount = seasonData.episodes || (seasonData.nextAiringEpisode ? seasonData.nextAiringEpisode.episode - 1 : (seasonData.streamingEpisodes?.length || null));
+    
+    seasonMediaId = `${id}-s${anilistSeasonId}`;
+    seasonFullTitle = seasonLabel;
+    seasonDuration = seasonData.duration || null;
+    seasonTrailerUrl = seasonData.trailer?.site === "youtube" ? `https://www.youtube.com/embed/${seasonData.trailer.id}` : null;
+    seasonStreamingLinks = seasonData.externalLinks?.filter((link: any) => link.type === "STREAMING") || [];
+    
+    const seasonRecord = localMedia.seasons.find((s: any) => s.anilistId === anilistSeasonId);
+    
+    if (anilistSeasonId === localMedia.anilistId) {
+      seasonStudioData = localMedia.studioData || seasonData.studios;
+      seasonCastData = localMedia.castData || seasonData.characters;
+      seasonCredits = getSeasonCrew(localMedia.staffData || seasonData.staff);
+    } else {
+      seasonStudioData = seasonRecord?.studioData || seasonData.studios;
+      seasonCastData = seasonRecord?.castData || seasonData.characters;
+      seasonCredits = getSeasonCrew(seasonRecord?.staffData || seasonData.staff);
+    }
+
+    if (seasonEpisodeCount && seasonEpisodeCount > 0) {
+      episodes = Array.from({ length: seasonEpisodeCount }, (_, i) => {
+        const ep = seasonData.streamingEpisodes?.[i];
+        if (ep) {
+          return {
+            id: i + 1,
+            name: ep.title,
+            episode_number: i + 1,
+            overview: "",
+            image: ep.thumbnail || null,
+            air_date: "",
+            runtime: seasonData.duration || 0,
+            globalScore: 0
+          };
+        }
+        return {
+          id: i + 1,
+          name: `Episode ${i + 1}`,
+          episode_number: i + 1,
+          overview: "",
+          image: null,
+          air_date: "",
+          runtime: seasonData.duration || 0,
+          globalScore: 0
+        };
+      });
+    }
+    
+    const timelineItems = [
+      { id: localMedia.anilistId, releaseDate: localMedia.releaseDate ? new Date(localMedia.releaseDate).getTime() : 0 },
+      ...localMedia.seasons.map((s: any) => ({
+        id: s.anilistId,
+        releaseDate: s.releaseDate ? new Date(s.releaseDate).getTime() : Infinity
+      }))
+    ].sort((a, b) => a.releaseDate - b.releaseDate);
+    
+    const currentIndex = timelineItems.findIndex((item) => item.id === anilistSeasonId);
+    if (currentIndex > 0) prevSeasonNum = timelineItems[currentIndex - 1].id;
+    if (currentIndex !== -1 && currentIndex < timelineItems.length - 1) nextSeasonNum = timelineItems[currentIndex + 1].id;
+  }
 
   const [stats, placementRank, reviews, globalData] = await Promise.all([
     getMediaStats(seasonMediaId),
@@ -94,8 +210,6 @@ export default async function SeasonPage({
 
   const globalCriteriaAverages = calculateCriteriaAverages(globalData);
   const activeCriteriaConfig = CRITERIA_CONFIG["show"] || [];
-
-  const seasonLabel = seasonMeta?.name ?? `Season ${seasonNum}`;
 
   return (
     <main className="min-h-screen bg-gray-950 text-white relative pb-24">
@@ -128,36 +242,60 @@ export default async function SeasonPage({
               mediaTitle={seasonFullTitle}
               mediaImage={seasonPoster}
             />
+
+            {/* WHERE TO WATCH */}
+            {seasonStreamingLinks && seasonStreamingLinks.length > 0 && (
+              <div className="mt-4 bg-gray-950/50 p-5 rounded-2xl border border-gray-800 shadow-xl">
+                <h3 className="text-sm font-black text-gray-500 uppercase tracking-widest mb-4">Where to Watch</h3>
+                <div className="flex flex-col gap-3">
+                  {seasonStreamingLinks.map((link: any) => (
+                    <a key={link.url} href={link.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 bg-gray-900 hover:bg-gray-800 p-3 rounded-xl border border-gray-800 hover:border-gray-600 transition-colors">
+                      {link.icon ? <img src={link.icon} className="w-6 h-6 object-contain" /> : <div className="w-6 h-6 bg-gray-800 rounded-full"></div>}
+                      <span className="font-bold text-gray-200 text-sm" style={{ color: link.color || '#fff' }}>{link.site}</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="flex-1">
             <h1 className="text-4xl sm:text-5xl font-black text-white tracking-tight mb-4">
-              {showDetails.title} - Season {seasonNum}
+              {seasonFullTitle}
             </h1>
 
             <div className="flex items-center gap-3 mt-3 mb-4">
-              {seasonMeta?.air_date && (
+              {seasonAirDate && (
                 <span className="text-gray-300 font-bold text-sm">
-                  {seasonMeta.air_date.split('-')[0]}
+                  {seasonAirDate.split('-')[0]}
                 </span>
               )}
 
-              {seasonMeta?.air_date && seasonMeta?.episode_count != null && (
+              {seasonAirDate && seasonEpisodeCount != null && (
                 <span className="text-gray-600">•</span>
               )}
 
-              {seasonMeta?.episode_count != null && (
+              {seasonEpisodeCount != null && (
                 <span className="bg-gray-900/80 border border-gray-800 px-3 py-1 rounded-full text-xs font-bold text-gray-400">
-                  {seasonMeta.episode_count} episodes
+                  {seasonEpisodeCount} episodes
                 </span>
               )}
 
-              <span className="text-gray-600">•</span>
+              {seasonDuration != null && (
+                <>
+                  <span className="text-gray-600 hidden sm:inline">•</span>
+                  <span className="bg-gray-900/80 border border-gray-800 px-3 py-1 rounded-full text-xs font-bold text-gray-400">
+                    Avg ep {seasonDuration} min
+                  </span>
+                </>
+              )}
+
+              <span className="text-gray-600 hidden sm:inline">•</span>
 
               <div className="flex items-center gap-2">
-                {seasonNum > 1 && (
+                {prevSeasonNum != null && (
                   <Link
-                    href={`/media/${id}/season/${seasonNum - 1}`}
+                    href={`/media/${id}/season/${prevSeasonNum}`}
                     className="flex h-6 w-6 items-center justify-center rounded border border-gray-800 bg-gray-900 text-sm text-gray-400 hover:border-blue-500 hover:text-white transition-colors"
                   >
                     ←
@@ -177,39 +315,62 @@ export default async function SeasonPage({
               </div>
             </div>
 
+            {/* STUDIOS ROW */}
+            {seasonStudioData && getMasterStudios(seasonStudioData).length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                <span className="text-[10px] text-blue-500 uppercase tracking-widest font-black self-center mr-2">Studio</span>
+                {getMasterStudios(seasonStudioData).map((s: any, i: number, arr: any[]) => (
+                  <span key={s.id || s} className="flex gap-2 items-center">
+                    <span className="text-sm font-bold text-gray-200">{s.name || s}</span>
+                    {i < arr.length - 1 && <span className="text-gray-600 text-xs font-black">•</span>}
+                  </span>
+                ))}
+              </div>
+            )}
+
             {/* DYNAMIC CREW GRID */}
-            <div className="flex flex-wrap gap-x-10 gap-y-4 py-5 border-y border-gray-800/60 mb-6">
-              {showDetails.director && (
-                <div className="flex flex-col">
-                  <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black mb-1">Director</span>
-                  <span className="text-sm font-bold text-gray-200">{showDetails.director}</span>
-                </div>
-              )}
-              
-              {showDetails.writer && (
-                <div className="flex flex-col">
-                  <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black mb-1">Writer / Script</span>
-                  <span className="text-sm font-bold text-gray-200">{showDetails.writer}</span>
-                </div>
-              )}
+            {provider === "tmdb" && showDetails && (
+              <div className="flex flex-wrap gap-x-10 gap-y-4 py-5 border-y border-gray-800/60 mb-6">
+                {showDetails.director && (
+                  <div className="flex flex-col">
+                    <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black mb-1">Director</span>
+                    <span className="text-sm font-bold text-gray-200">{showDetails.director}</span>
+                  </div>
+                )}
+                
+                {showDetails.writer && (
+                  <div className="flex flex-col">
+                    <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black mb-1">Writer / Script</span>
+                    <span className="text-sm font-bold text-gray-200">{showDetails.writer}</span>
+                  </div>
+                )}
 
-              {showDetails.music && (
-                <div className="flex flex-col">
-                  <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black mb-1">Music / Score</span>
-                  <span className="text-sm font-bold text-gray-200">{showDetails.music}</span>
-                </div>
-              )}
+                {showDetails.music && (
+                  <div className="flex flex-col">
+                    <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black mb-1">Music / Score</span>
+                    <span className="text-sm font-bold text-gray-200">{showDetails.music}</span>
+                  </div>
+                )}
 
-              {showDetails.creator && (
-                <div className="flex flex-col">
-                  <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black mb-1">Creator / Author</span>
-                  <span className="text-sm font-bold text-gray-200">{showDetails.creator}</span>
-                </div>
-              )}
-            </div>
+                {showDetails.creator && (
+                  <div className="flex flex-col">
+                    <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black mb-1">Creator / Author</span>
+                    <span className="text-sm font-bold text-gray-200">{showDetails.creator}</span>
+                  </div>
+                )}
+              </div>
+            )}
 
-            {seasonMeta?.overview && (
-              <ExpandableText text={seasonMeta.overview} maxLength={300} />
+            {/* DYNAMIC CREW GRID */}
+            {provider !== "tmdb" && (
+              <StaffGrid 
+                primaryStaff={seasonCredits?.primary || []} 
+                secondaryStaff={seasonCredits?.secondary || []} 
+              />
+            )}
+
+            {seasonOverview && (
+              <ExpandableText text={seasonOverview} maxLength={300} />
             )}
 
             {/* MASTER STAT BLOCK */}
@@ -257,40 +418,33 @@ export default async function SeasonPage({
 
             <h2 className="text-2xl font-bold mb-6 mt-12">Episodes</h2>
 
-            {episodes.length === 0 ? (
-              <div className="text-center py-16 bg-gray-900/30 rounded-2xl border border-gray-800 border-dashed">
-                <p className="text-gray-400">No episodes found for this season.</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {episodes.map((ep) => (
-                  <Link
-                    key={ep.id}
-                    href={`/media/${id}/season/${seasonNum}/episode/${ep.episode_number}`}
-                    className="bg-gray-900 p-5 rounded-xl border border-gray-800 hover:border-blue-500 hover:bg-gray-800/80 transition-colors block"
-                  >
-                    <div className="flex items-center justify-between gap-3 mb-1">
-                      <p className="text-sm font-black text-gray-500">
-                        Episode {ep.episode_number}
-                      </p>
-                    </div>
-                    <p className="font-bold text-lg text-gray-100">{ep.name}</p>
-                    <p className="text-sm text-gray-400 mt-2">
-                      {ep.air_date && <span>{ep.air_date}</span>}
-                      {ep.runtime ? (
-                        <span>
-                          {ep.air_date ? " • " : ""}
-                          {ep.runtime} min
-                        </span>
-                      ) : null}
-                    </p>
-                  </Link>
-                ))}
-              </div>
-            )}
+            <EpisodeList 
+              mediaId={id} 
+              seasonNumber={seasonNumber} 
+              episodes={episodes} 
+            />
 
           </div>
         </div>
+
+        {/* RESTORED CAST AND TRAILER SECTION */}
+        {(seasonCastData?.edges?.length > 0 || seasonTrailerUrl) && (
+          <div className="grid lg:grid-cols-3 gap-12 pt-8 border-t border-gray-800">
+            {seasonCastData && seasonCastData.edges?.length > 0 && (
+              <div className="lg:col-span-2">
+                <ExpandableAniListCast castData={seasonCastData} />
+              </div>
+            )}
+            {seasonTrailerUrl && (
+              <div className="lg:col-span-1">
+                <h2 className="text-2xl font-bold mb-6 mt-2">Trailer</h2>
+                <div className="w-full aspect-video rounded-xl overflow-hidden shadow-xl shadow-black/50 border border-gray-800">
+                  <iframe src={seasonTrailerUrl} title="YouTube video player" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen className="w-full h-full"></iframe>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* RESTORED REVIEWS SECTION */}
         <div className="mt-8 pt-12 border-t border-gray-800">
@@ -301,7 +455,7 @@ export default async function SeasonPage({
                 <div className="text-center py-16 bg-gray-900/30 rounded-2xl border border-gray-800 border-dashed"><p className="text-gray-400 text-lg">No reviews yet. Be the first to review!</p></div>
               ) : (
                 <div className="grid md:grid-cols-2 gap-6">
-                  {reviews.map((review, index) => (
+                  {reviews.map((review: any, index: number) => (
                     <div key={index} className="bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl flex flex-col">
                       <div className="flex justify-between items-start mb-4">
                         <div className="flex items-center gap-3">

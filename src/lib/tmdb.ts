@@ -115,7 +115,9 @@ export async function searchTMDb(query: string): Promise<MediaItem[]> {
     title: item.title || item.name, // TMDb uses 'title' for movies, 'name' for TV
     type: item.media_type === 'tv' ? 'show' : 'movie',
     image: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : null,
-    releaseDate: item.release_date || item.first_air_date || 'N/A'
+    releaseDate: item.release_date || item.first_air_date || 'N/A',
+    originalLanguage: item.original_language,
+    genreIds: item.genre_ids || []
   }));
 
   await writeApiCache(cacheId, 'tmdb', results, SEARCH_CACHE_TTL_SECONDS);

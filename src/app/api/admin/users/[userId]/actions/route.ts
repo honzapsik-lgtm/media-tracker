@@ -22,7 +22,7 @@ export async function POST(
     }
 
     if (action === "recalculate-stats") {
-      const mediaTypes = body.mediaType ? [body.mediaType] : ["movie", "show", "game", "manga"];
+      const mediaTypes = body.mediaType ? [body.mediaType] : ["MOVIE", "SHOW", "GAME", "OTHER"];
 
       for (const mediaType of mediaTypes) {
         await enqueueJob({

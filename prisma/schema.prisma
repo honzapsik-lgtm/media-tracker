@@ -6,11 +6,65 @@ datasource db {
   provider = "postgresql"
 }
 
+enum MediaType {
+  SHOW
+  MOVIE
+  GAME
+  MANGA
+  OTHER
+}
+
+model Media {
+  id              String      @id @default(uuid())
+  anilistId       Int?        @unique
+  title           String?
+  type            MediaType
+  isMainStoryline Boolean     @default(false)
+  releaseDate     String?
+
+  relatedMediaId  String?
+  relatedMedia    Media?      @relation("MediaToMedia", fields: [relatedMediaId], references: [id])
+  inverseRelated  Media[]     @relation("MediaToMedia")
+
+  seasons         Season[]
+  episodes        Episode[]
+  staffData       Json?
+  castData        Json?
+  studioData      Json?
+
+  franchiseSyncedAt DateTime?
+
+  @@map("media")
+}
+
+model Season {
+  id        String  @id @default(uuid())
+  anilistId Int?    @unique
+  mediaId   String
+  releaseDate String?
+  media     Media   @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  
+  staffData       Json?
+  castData        Json?
+  studioData      Json?
+
+  @@map("seasons")
+}
+
+model Episode {
+  id        String  @id @default(uuid())
+  anilistId Int?    @unique
+  mediaId   String
+  media     Media   @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+
+  @@map("episodes")
+}
+
 model MediaStats {
-  id                String   @id
-  media_type        String
-  community_average Decimal? @default(0) @db.Decimal
-  total_ratings     Int?     @default(0)
+  id                String    @id
+  media_type        MediaType
+  community_average Decimal?  @default(0) @db.Decimal
+  total_ratings     Int?      @default(0)
 
   @@map("media_stats")
 }
@@ -30,7 +84,7 @@ model UserList {
   user_id     String         @db.Uuid
   title       String
   description String?
-  media_type  String         // Constrained values: 'movie', 'show', 'manga', 'season', 'episode', 'game'
+  media_type  MediaType
   created_at  DateTime       @default(now()) @db.Timestamptz(6)
   updated_at  DateTime       @default(now()) @updatedAt @db.Timestamptz(6)
   
@@ -58,7 +112,7 @@ model UserListItem {
 
 model GlobalRanking {
   media_id    String    @id
-  media_type  String
+  media_type  MediaType
   elo_score   Float     @default(1200.0)
   rank        Int?      // Cached global integer ranking position calculated dynamically
 
@@ -89,15 +143,18 @@ model UserRating {
 }
 
 model UserWatchlist {
-  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id     String?   @db.Uuid
-  media_id    String
-  media_title String?
-  media_image String?
-  media_type  String?
-  status      String?   @default("plan_to_watch")
-  added_at    DateTime? @default(now()) @db.Timestamptz(6)
-  user        User?     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id         String?   @db.Uuid
+  media_id        String
+  media_title     String?
+  media_image     String?
+  media_type      MediaType?
+  status          String?   @default("plan_to_watch")
+  added_at        DateTime? @default(now()) @db.Timestamptz(6)
+  episodesWatched Int       @default(0)
+  chaptersRead    Int       @default(0)
+  volumesRead     Int       @default(0)
+  user            User?     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([user_id, media_id])
   @@map("user_watchlist")
@@ -173,11 +230,11 @@ model ApiCache {
 }
 
 model UserStatsCache {
-  user_id    String   @db.Uuid
-  media_type String
+  user_id    String    @db.Uuid
+  media_type MediaType
   stats_json Json
-  updated_at DateTime @updatedAt
-  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  updated_at DateTime  @updatedAt
+  user       User      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([user_id, media_type])
 }

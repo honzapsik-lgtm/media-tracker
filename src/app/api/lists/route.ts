@@ -19,7 +19,7 @@ export async function GET(request: Request) {
     const lists = await prisma.userList.findMany({
       where: {
         user_id: session.user.id,
-        ...(mediaType ? { media_type: mediaType } : {}),
+        ...(mediaType ? { media_type: mediaType.toUpperCase() as any } : {}),
       },
       include: {
         _count: { select: { items: true } }
@@ -55,8 +55,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Title and media_type are required" }, { status: 400 });
     }
 
-    const validMediaTypes = ["movie", "show", "manga", "season", "episode", "game"];
-    if (!validMediaTypes.includes(media_type)) {
+    let finalMediaType = media_type.toUpperCase();
+    if (finalMediaType === "SEASON") {
+      finalMediaType = "SHOW";
+    }
+
+    const validMediaTypes = ["MOVIE", "SHOW", "MANGA", "GAME", "OTHER"];
+    if (!validMediaTypes.includes(finalMediaType)) {
       return NextResponse.json({ error: "Invalid media_type" }, { status: 400 });
     }
 
@@ -64,7 +69,7 @@ export async function POST(request: Request) {
       data: {
         user_id: session.user.id,
         title,
-        media_type,
+        media_type: finalMediaType as any,
       },
     });
 

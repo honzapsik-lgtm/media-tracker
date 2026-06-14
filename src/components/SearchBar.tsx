@@ -10,6 +10,7 @@ interface MediaItem {
   type: string;
   image: string | null;
   releaseDate: string;
+  origin?: string;
 }
 
 export default function SearchBar() {
@@ -104,8 +105,8 @@ export default function SearchBar() {
             <div className="max-h-[70vh] overflow-y-auto scrollbar-none">
               {results.map((item) => (
                 <Link
-                  key={item.id}
-                  href={`/media/${item.id}`}
+                  key={`${item.origin || 'tmdb'}-${item.id}`}
+                  href={item.origin === 'ANILIST' && !String(item.id).startsWith('anilist-') ? `/media/anilist-${item.id}` : `/media/${item.id}`}
                   onClick={handleResultClick}
                   className="flex items-center gap-3 p-3 hover:bg-gray-800 transition-colors group"
                 >

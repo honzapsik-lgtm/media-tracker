@@ -29,7 +29,7 @@ export default async function RankingsPage({
 
   // NOTE: genre and year filters would be applied to the query here once the DB supports it
   
-  const { results, count } = await getRankedMedia(type, sort, page, limit);
+  const { results, count } = await getRankedMedia(type as any, sort, page, limit);
   const hasNext = count ? page * limit < count : false;
   const hasPrev = page > 1;
 
@@ -99,7 +99,7 @@ export default async function RankingsPage({
               <p className="text-gray-400 text-lg">No rankings exist in this category yet.</p>
             </div>
           ) : (
-            results.map((item, index: number) => {
+            results.map((item: any, index: number) => {
               const displayRank = sort === 'list_rank' ? item.list_rank : from + index + 1;
 
               return (

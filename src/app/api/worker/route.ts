@@ -10,6 +10,8 @@ type JobPayload = {
   userId?: string;
   mediaType?: string;
   reason?: string;
+  anilistId?: number;
+  internalMediaId?: string;
 };
 
 function createWorkerId() {
@@ -49,7 +51,21 @@ async function processJob(job: { id: string; type: string; payload: unknown }, r
       mediaType: payload.mediaType,
       slowThresholdMs: PERF_WARN_THRESHOLD_MS,
       metadata: { source: "processJob", workerId, jobId: job.id, reason: payload.reason },
-    }, () => updateUserStatsCache(payload.userId as string, payload.mediaType as string, payload.reason));
+    }, () => updateUserStatsCache(payload.userId as string, payload.mediaType as any, payload.reason));
+  } else if (job.type === "syncAniListFranchiseTree") {
+    if (!payload.anilistId || !payload.internalMediaId) {
+      throw new Error("syncAniListFranchiseTree job requires anilistId and internalMediaId");
+    }
+    const { processFranchiseTree } = await import("@/lib/anilist-sync");
+    await timeOperation({
+      event: "worker.job.sync_anilist",
+      requestId,
+      slowThresholdMs: PERF_WARN_THRESHOLD_MS * 3,
+      metadata: { source: "processJob", workerId, jobId: job.id },
+    }, () => processFranchiseTree({ 
+      anilistId: payload.anilistId as number, 
+      internalMediaId: payload.internalMediaId as string 
+    }));
   } else {
     throw new Error(`Unknown job type: ${job.type}`);
   }

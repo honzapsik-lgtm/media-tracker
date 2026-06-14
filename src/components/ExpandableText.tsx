@@ -12,11 +12,14 @@ export default function ExpandableText({ text, maxLength = 250 }: ExpandableText
 
   if (!text) return <p className="text-gray-400 italic">No description available.</p>;
 
+  // Replace <br> with actual newlines, then strip any remaining HTML tags
+  const cleanText = text.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>?/gm, '');
+
   // Check if the text is actually long enough to need hiding
-  const isLong = text.length > maxLength;
+  const isLong = cleanText.length > maxLength;
   
   // Cut the string off cleanly if it's not expanded
-  const displayText = isExpanded || !isLong ? text : `${text.slice(0, maxLength).trim()}...`;
+  const displayText = isExpanded || !isLong ? cleanText : `${cleanText.slice(0, maxLength).trim()}...`;
 
   return (
     <div className="mb-10 max-w-3xl">

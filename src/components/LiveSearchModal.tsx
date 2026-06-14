@@ -7,6 +7,7 @@ interface LiveSearchModalProps {
   onClose: () => void;
   mediaType: string;
   onSelect: (item: any) => void;
+    origin?: string;
 }
 
 export default function LiveSearchModal({ isOpen, onClose, mediaType, onSelect }: LiveSearchModalProps) {
@@ -79,7 +80,13 @@ export default function LiveSearchModal({ isOpen, onClose, mediaType, onSelect }
               {results.map((item) => (
                 <button
                   key={item.id}
-                  onClick={() => onSelect(item)}
+                  onClick={() => {
+                    const finalItem = { ...item };
+                    if (item.origin === 'ANILIST' && !String(item.id).startsWith('anilist-')) {
+                      finalItem.id = `anilist-${item.id}`;
+                    }
+                    onSelect(finalItem);
+                  }}
                   className="flex items-center gap-4 p-3 rounded-xl hover:bg-gray-800 transition-colors text-left group"
                 >
                   {item.image ? (
