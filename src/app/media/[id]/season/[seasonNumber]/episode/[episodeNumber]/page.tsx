@@ -67,15 +67,21 @@ export default async function EpisodePage({
     }
 
     const seasonRecord = localMedia.seasons.find((s: any) => s.anilistId === seasonNum);
-    const hybridEpisodes = seasonRecord?.episodeData as any[] | undefined;
+    const hybridEpisodes = (seasonNum === localMedia.anilistId
+      ? localMedia.episodeData
+      : seasonRecord?.episodeData) as any[] | undefined;
     const seasonEpisodeCount = seasonData?.episodes || (seasonData?.nextAiringEpisode ? seasonData.nextAiringEpisode.episode - 1 : (seasonData?.streamingEpisodes?.length || 0));
     
     if (epNum < 1 || (seasonEpisodeCount > 0 && epNum > seasonEpisodeCount && (!hybridEpisodes || epNum > hybridEpisodes.length))) notFound();
 
     if (seasonEpisodeCount && seasonEpisodeCount > 0) {
+      const streamingEpisodes = seasonData.streamingEpisodes?.length === seasonEpisodeCount
+        ? seasonData.streamingEpisodes
+        : [];
+
       episodes = Array.from({ length: seasonEpisodeCount }, (_, i) => {
         const aniEpNum = i + 1;
-        const ep = seasonData.streamingEpisodes?.[i];
+        const ep = streamingEpisodes?.[i];
         
         let hybridEp = null;
         if (hybridEpisodes && hybridEpisodes.length > 0) {

@@ -40,6 +40,16 @@ const getScoreColor = (score: number | null | undefined) => {
 
 interface TmdbSeasonSummary { id: number; name: string; season_number: number; episode_count: number; }
 
+function getKnownEpisodeCount(node: any, episodeData?: unknown): number | "Unknown" {
+  if (typeof node?.episodes === "number" && node.episodes > 0) return node.episodes;
+  if (typeof node?.nextAiringEpisode?.episode === "number" && node.nextAiringEpisode.episode > 1) {
+    return node.nextAiringEpisode.episode - 1;
+  }
+  if (Array.isArray(episodeData) && episodeData.length > 0) return episodeData.length;
+  if (Array.isArray(node?.streamingEpisodes) && node.streamingEpisodes.length > 0) return node.streamingEpisodes.length;
+  return "Unknown";
+}
+
 export default async function MediaDetailsPage({ params }: { params: Promise<{ id: string }>; }) {
   const resolvedParams = await params;
   let mediaId = resolvedParams.id;
@@ -215,7 +225,7 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
       {
         id: franchiseRoot.id,
         title: timelineRootTitle,
-        episode_count: franchiseRoot.id === localDbMedia?.id ? (rawData?.episodes || 'Unknown') : 'Unknown',
+        episode_count: getKnownEpisodeCount(rawData, franchiseRoot.episodeData),
         _sortTime: franchiseRoot.releaseDate ? new Date(franchiseRoot.releaseDate).getTime() : 0,
         link: `/media/${franchiseRoot.id}/season/${franchiseRoot.anilistId}`,
         isMovie: false,
@@ -228,7 +238,9 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
         const fetchedNode = anilistSeasonNodes.find((n: any) => n.id === s.anilistId);
         if (fetchedNode && (fetchedNode.title?.english || fetchedNode.title?.romaji)) {
           nodeTitle = fetchedNode.title.english || fetchedNode.title.romaji;
-          nodeEpisodes = fetchedNode.episodes || 'Unknown';
+          nodeEpisodes = getKnownEpisodeCount(fetchedNode, s.episodeData);
+        } else if (Array.isArray(s.episodeData) && s.episodeData.length > 0) {
+          nodeEpisodes = s.episodeData.length;
         }
 
         return {

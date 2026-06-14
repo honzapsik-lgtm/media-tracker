@@ -4,7 +4,97 @@ import { MediaType } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { getMapping } from "./mal-sync";
 import { getAnimeThemes } from "./jikan";
-import { getTMDbSeasonData, getTMDbDetails } from "./tmdb";
+import { getTMDbSeasonData, getTMDbDetails, searchTMDb } from "./tmdb";
+
+type EpisodeCursor = {
+  tmdbSeasonIndex: number;
+  episodeOffset: number;
+};
+
+function getEpisodeCount(node: any) {
+  return node.episodes || (node.nextAiringEpisode ? node.nextAiringEpisode.episode - 1 : 0);
+}
+
+function getNodeTimestamp(node: any) {
+  return node.startDate?.year
+    ? new Date(node.startDate.year, (node.startDate.month || 1) - 1, node.startDate.day || 1).getTime()
+    : Infinity;
+}
+
+async function resolvePrimaryTmdbId(rootTitle: string, mappedTmdbId: number | null) {
+  if (mappedTmdbId) return mappedTmdbId;
+
+  try {
+    const titleVariants = Array.from(new Set([
+      rootTitle,
+      rootTitle.replace(/\s*\([^)]*\)\s*/g, " ").replace(/\s+/g, " ").trim(),
+      rootTitle.replace(/\s*-\s*TV\s*$/i, "").trim(),
+    ].filter(Boolean)));
+
+    for (const titleVariant of titleVariants) {
+      const results = await searchTMDb(titleVariant);
+      const normalizedVariant = titleVariant.toLowerCase();
+      const show = results.find((item: any) => {
+        const title = (item.title || "").toLowerCase();
+        return item.type === "show"
+          && title === normalizedVariant
+          && item.originalLanguage === "ja"
+          && item.genreIds?.includes(16);
+      }) || results.find((item: any) =>
+        item.type === "show"
+        && item.originalLanguage === "ja"
+        && item.genreIds?.includes(16)
+      ) || results.find((item: any) => item.type === "show");
+
+      if (show?.id) {
+        const parts = show.id.split("-");
+        return Number(parts.at(-1)) || null;
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error(`[TMDb Mapping] Could not resolve TMDb show for ${rootTitle}:`, error);
+    return null;
+  }
+}
+
+async function readTmdbSeasonEpisodes(
+  tmdbShowId: number,
+  tmdbSeasons: any[],
+  seasonCache: Map<number, any[]>,
+  cursor: EpisodeCursor,
+  requestedCount: number
+) {
+  const episodes: any[] = [];
+
+  while (episodes.length < requestedCount && cursor.tmdbSeasonIndex < tmdbSeasons.length) {
+    const tmdbSeason = tmdbSeasons[cursor.tmdbSeasonIndex];
+    let seasonEpisodes = seasonCache.get(tmdbSeason.season_number);
+
+    if (!seasonEpisodes) {
+      const loadedEpisodes = (await getTMDbSeasonData(tmdbShowId, tmdbSeason.season_number)) ?? [];
+      seasonEpisodes = loadedEpisodes;
+      seasonCache.set(tmdbSeason.season_number, loadedEpisodes);
+    }
+
+    const availableEpisodes = seasonEpisodes ?? [];
+    const remaining = requestedCount - episodes.length;
+    const slice = availableEpisodes.slice(cursor.episodeOffset, cursor.episodeOffset + remaining);
+    episodes.push(...slice);
+    cursor.episodeOffset += slice.length;
+
+    if (cursor.episodeOffset >= availableEpisodes.length || slice.length === 0) {
+      cursor.tmdbSeasonIndex++;
+      cursor.episodeOffset = 0;
+    }
+  }
+
+  return episodes.map((ep: any, idx: number) => ({
+    ...ep,
+    episode_number: idx + 1,
+  }));
+}
 
 export async function processFranchiseTree(payload: { anilistId: number; internalMediaId: string }) {
   const { anilistId, internalMediaId } = payload;
@@ -218,7 +308,7 @@ export async function processFranchiseTree(payload: { anilistId: number; interna
   });
 
   // Step 4: Execute Cross-Pollination Engine
-  const seasons = await prisma.season.findMany({ where: { mediaId: internalMediaId } });
+  const seasons = await prisma.season.findMany({ where: { mediaId: dbRootMedia.id } });
   const allNodes = [
     { type: 'media', id: dbRootMedia.id, anilistId: dbRootMedia.anilistId },
     ...seasons.map(s => ({ type: 'season', id: s.id, anilistId: s.anilistId }))
@@ -238,6 +328,7 @@ export async function processFranchiseTree(payload: { anilistId: number; interna
       primaryTmdbId = mapping.tmdbId;
     }
   }
+  primaryTmdbId = await resolvePrimaryTmdbId(rootTitle, primaryTmdbId);
 
   // Step 4.2: Map Episode Data using Offsets
   const nodeEpisodeDataMap = new Map(); // anilistId -> episodeData array
@@ -246,57 +337,36 @@ export async function processFranchiseTree(payload: { anilistId: number; interna
     if (tmdbShow && tmdbShow.seasons) {
       const tvNodes = anilistNodeData.filter((n: any) => 
         ['TV', 'TV_SHORT', 'ONA'].includes(n.format)
-      ).sort((a: any, b: any) => {
-        const dateA = a.startDate?.year ? new Date(a.startDate.year, (a.startDate.month || 1) - 1, a.startDate.day || 1).getTime() : Infinity;
-        const dateB = b.startDate?.year ? new Date(b.startDate.year, (b.startDate.month || 1) - 1, b.startDate.day || 1).getTime() : Infinity;
-        return dateA - dateB;
-      });
+      ).sort((a: any, b: any) => getNodeTimestamp(a) - getNodeTimestamp(b));
 
       const tmdbSeasons = tmdbShow.seasons
         .filter((s: any) => s.season_number > 0)
         .sort((a: any, b: any) => a.season_number - b.season_number);
 
-      let tmdbIdx = 0;
-      let tmdbOffset = 0;
-      let currentTmdbSeasonData = null;
+      const cursor: EpisodeCursor = { tmdbSeasonIndex: 0, episodeOffset: 0 };
+      const seasonCache = new Map<number, any[]>();
 
       for (const aNode of tvNodes) {
-        if (tmdbIdx >= tmdbSeasons.length) break;
-        
-        let tmdbS = tmdbSeasons[tmdbIdx];
-        const anilistEpisodeCount = aNode.episodes || (aNode.nextAiringEpisode ? aNode.nextAiringEpisode.episode - 1 : 0);
-        
+        if (cursor.tmdbSeasonIndex >= tmdbSeasons.length) break;
+
+        const anilistEpisodeCount = getEpisodeCount(aNode);
         const mapping = mappings.get(aNode.id);
-        
-        // Use explicit offset if provided by MAL-Sync
-        if (mapping && mapping.episodeStart !== null && mapping.episodeStart !== undefined) {
-          // MAL-Sync uses 1-indexed episode_start, so offset is episode_start - 1
-          tmdbOffset = mapping.episodeStart > 0 ? mapping.episodeStart - 1 : 0;
+
+        if (mapping?.episodeStart && mapping.episodeStart > 1) {
+          cursor.episodeOffset = mapping.episodeStart - 1;
         }
 
         if (anilistEpisodeCount > 0) {
-          if (!currentTmdbSeasonData || currentTmdbSeasonData.season_number !== tmdbS.season_number) {
-             const data = await getTMDbSeasonData(primaryTmdbId, tmdbS.season_number);
-             currentTmdbSeasonData = { season_number: tmdbS.season_number, episodes: data || [] };
-          }
-
-          const chunk = currentTmdbSeasonData.episodes.slice(tmdbOffset, tmdbOffset + anilistEpisodeCount);
-          
-          // CRITICAL: Rewrite episode_number to be 1-indexed for the AniList node
-          const mappedChunk = chunk.map((ep: any, idx: number) => ({
-             ...ep,
-             episode_number: idx + 1
-          }));
+          const mappedChunk = await readTmdbSeasonEpisodes(
+            primaryTmdbId,
+            tmdbSeasons,
+            seasonCache,
+            cursor,
+            anilistEpisodeCount
+          );
 
           if (mappedChunk.length > 0) {
             nodeEpisodeDataMap.set(aNode.id, mappedChunk);
-          }
-
-          tmdbOffset += anilistEpisodeCount;
-
-          if (tmdbOffset >= tmdbS.episode_count) {
-             tmdbIdx++;
-             tmdbOffset = 0;
           }
         }
       }
@@ -328,7 +398,7 @@ export async function processFranchiseTree(payload: { anilistId: number; interna
     if (node.type === 'media') {
       const updateData: any = {};
       if (idMal) updateData.malId = idMal;
-      if (mapping.tmdbId) updateData.tmdbId = mapping.tmdbId;
+      if (mapping.tmdbId || primaryTmdbId) updateData.tmdbId = mapping.tmdbId || primaryTmdbId;
       if (themes) updateData.themeData = themes;
       if (chunkedEpisodes) updateData.episodeData = chunkedEpisodes;
       
@@ -347,6 +417,9 @@ export async function processFranchiseTree(payload: { anilistId: number; interna
     }
   }
 
-  // The absolute final step MUST be to call revalidatePath('/media/[id]') using the local DB ID.
-  revalidatePath(`/media/${internalMediaId}`);
+  try {
+    revalidatePath(`/media/${internalMediaId}`);
+  } catch (error) {
+    console.warn(`[AniList Sync] Could not revalidate /media/${internalMediaId}:`, error);
+  }
 }

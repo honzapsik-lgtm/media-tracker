@@ -149,24 +149,31 @@ export default async function SeasonPage({
     seasonStreamingLinks = seasonData.externalLinks?.filter((link: any) => link.type === "STREAMING") || [];
     
     const seasonRecord = localMedia.seasons.find((s: any) => s.anilistId === anilistSeasonId);
-    seasonThemeData = seasonRecord?.themeData || null;
     
     if (anilistSeasonId === localMedia.anilistId) {
+      seasonThemeData = localMedia.themeData || null;
       seasonStudioData = localMedia.studioData || seasonData.studios;
       seasonCastData = localMedia.castData || seasonData.characters;
       seasonCredits = getSeasonCrew(localMedia.staffData || seasonData.staff);
     } else {
+      seasonThemeData = seasonRecord?.themeData || null;
       seasonStudioData = seasonRecord?.studioData || seasonData.studios;
       seasonCastData = seasonRecord?.castData || seasonData.characters;
       seasonCredits = getSeasonCrew(seasonRecord?.staffData || seasonData.staff);
     }
 
-    const hybridEpisodes = seasonRecord?.episodeData as any[] | undefined;
+    const hybridEpisodes = (anilistSeasonId === localMedia.anilistId
+      ? localMedia.episodeData
+      : seasonRecord?.episodeData) as any[] | undefined;
     
     if (seasonEpisodeCount && seasonEpisodeCount > 0) {
+      const streamingEpisodes = seasonData.streamingEpisodes?.length === seasonEpisodeCount
+        ? seasonData.streamingEpisodes
+        : [];
+
       episodes = Array.from({ length: seasonEpisodeCount }, (_, i) => {
         const aniEpNum = i + 1;
-        const ep = seasonData.streamingEpisodes?.[i];
+        const ep = streamingEpisodes?.[i];
         
         let hybridEp = null;
         if (hybridEpisodes && hybridEpisodes.length > 0) {

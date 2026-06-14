@@ -31,6 +31,7 @@ model Media {
   // New Rich Data Caches
   themeData Json? // structure: { openings: string[], endings: string[] }
   watchData Json? // structure: { flatrate: Provider[], rent: Provider[], buy: Provider[] }
+  episodeData Json? // root season episode metadata, used when the franchise root also acts as season 1
 
   relatedMediaId String?
   relatedMedia   Media?  @relation("MediaToMedia", fields: [relatedMediaId], references: [id])
