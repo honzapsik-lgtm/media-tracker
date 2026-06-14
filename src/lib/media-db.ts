@@ -23,7 +23,7 @@ export function inferMediaType(mediaId: string): MediaType {
   const parts = mediaId.split("-");
   if (parts[0] === "tmdb" && parts[1] === "movie") return "MOVIE" as MediaType;
   if (parts[0] === "tmdb" && parts[1] === "tv") return "SHOW" as MediaType;
-  if (parts[0] === "rawg") return "GAME" as MediaType;
+  if (parts[0] === "rawg" || parts[0] === "igdb") return "GAME" as MediaType;
   if (parts[0] === "manga") return "MANGA" as MediaType;
   return "OTHER" as MediaType;
 }
@@ -183,7 +183,7 @@ export async function awardBadges(userId: string) {
     hasMasterpiece
   ] = await Promise.all([
     prisma.userRating.count({ where: { user_id: userId } }),
-    prisma.userRating.count({ where: { user_id: userId, media_id: { startsWith: "rawg-" } } }),
+    prisma.userRating.count({ where: { user_id: userId, OR: [{ media_id: { startsWith: "rawg-" } }, { media_id: { startsWith: "igdb-" } }] } }),
     prisma.userRating.count({ where: { user_id: userId, media_id: { startsWith: "manga-" } } }),
     prisma.userRating.findFirst({ where: { user_id: userId, score: { lte: 20 } }, select: { id: true } }),
     prisma.userRating.findFirst({ where: { user_id: userId, score: 100 }, select: { id: true } })

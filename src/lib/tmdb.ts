@@ -2,6 +2,7 @@
 import { MediaItem, MediaCredit } from '@/types';
 import { readApiCache, timeProviderFetch, writeApiCache } from '@/lib/api-cache';
 import { prisma } from '@/lib/prisma';
+import { normalizeTMDbRole } from './credits-parser';
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
 const BASE_URL = 'https://api.themoviedb.org/3';
 const SEARCH_CACHE_TTL_SECONDS = 24 * 60 * 60;
@@ -139,7 +140,7 @@ export async function getTMDbDetails(id: string, type: 'movie' | 'tv') {
     cacheId,
     operation: "tmdb.details",
     fetcher: () => fetch(
-    `${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}&language=en-US&append_to_response=credits,videos`,
+    `${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}&language=en-US&append_to_response=credits,videos,release_dates,watch/providers`,
     { next: { revalidate: 3600 } }
     ),
   });
@@ -164,16 +165,14 @@ export async function getTMDbDetails(id: string, type: 'movie' | 'tv') {
   const crew = data.credits?.crew || [];
 
   crew.forEach((c: any) => {
-    if (['Director', 'Screenplay', 'Writer', 'Original Music Composer', 'Music'].includes(c.job)) {
-      // De-duplicate if needed, but for now just push
-      if (!credits.find(existing => existing.id === `tmdb-person-${c.id}` && existing.role === c.job)) {
-        credits.push({
-          id: `tmdb-person-${c.id}`,
-          name: c.name,
-          role: c.job === 'Screenplay' ? 'Writer' : (c.job === 'Original Music Composer' ? 'Music' : c.job),
-          image: c.profile_path ? `https://image.tmdb.org/t/p/w200${c.profile_path}` : null,
-        });
-      }
+    const role = normalizeTMDbRole(c.job);
+    if (!credits.find(existing => existing.id === `tmdb-person-${c.id}` && existing.role === role)) {
+      credits.push({
+        id: `tmdb-person-${c.id}`,
+        name: c.name,
+        role: role,
+        image: c.profile_path ? `https://image.tmdb.org/t/p/w200${c.profile_path}` : null,
+      });
     }
   });
 
@@ -189,7 +188,16 @@ export async function getTMDbDetails(id: string, type: 'movie' | 'tv') {
       }
     });
   }
-  
+  let watchData = null;
+  if (data['watch/providers']?.results?.US) {
+    const us = data['watch/providers'].results.US;
+    watchData = {
+      flatrate: us.flatrate || [],
+      rent: us.rent || [],
+      buy: us.buy || []
+    };
+  }
+
   const result = {
     id: cacheId,
     title: data.title || data.name,
@@ -204,8 +212,8 @@ export async function getTMDbDetails(id: string, type: 'movie' | 'tv') {
     trailerUrl: trailer ? `https://www.youtube.com/embed/${trailer.key}` : null,
     cast: fullCast,
     seasons: data.seasons || null,
-    
-    credits
+    credits,
+    watchData
   };
 
   const expiresAt = new Date();
@@ -216,5 +224,50 @@ export async function getTMDbDetails(id: string, type: 'movie' | 'tv') {
     create: { id: cacheId, provider: 'tmdb', data: result as any, expires_at: expiresAt }
   });
 
+  try {
+    const numId = Number(id);
+    if (!isNaN(numId) && watchData) {
+      await prisma.media.updateMany({
+        where: { tmdbId: numId },
+        data: { watchData }
+      });
+    }
+  } catch (e) {
+    console.error("[TMDb Sync] Failed to update Prisma watchData", e);
+  }
+
   return result;
+}
+
+export async function getTMDbSeasonData(tmdbShowId: number, seasonNumber: number) {
+  if (!process.env.TMDB_API_KEY) {
+    console.warn("[TMDb] API Key is missing. Cannot fetch season data.");
+    return null;
+  }
+
+  const res = await fetch(
+    `https://api.themoviedb.org/3/tv/${tmdbShowId}/season/${seasonNumber}?api_key=${process.env.TMDB_API_KEY}&language=en-US`,
+    { next: { revalidate: 86400 } }
+  );
+
+  if (!res.ok) {
+    if (res.status === 404) {
+      console.warn(`[TMDb] Season ${seasonNumber} not found for show ${tmdbShowId}`);
+      return null;
+    }
+    console.warn(`[TMDb] Failed to fetch season ${seasonNumber} for show ${tmdbShowId}: ${res.statusText}`);
+    return null;
+  }
+
+  const data = await res.json();
+  if (!data.episodes) return [];
+
+  return data.episodes.map((episode: any) => ({
+    episode_number: episode.episode_number,
+    name: episode.name,
+    overview: episode.overview,
+    still_path: episode.still_path ? `https://image.tmdb.org/t/p/w780${episode.still_path}` : null,
+    air_date: episode.air_date,
+    runtime: episode.runtime
+  }));
 }

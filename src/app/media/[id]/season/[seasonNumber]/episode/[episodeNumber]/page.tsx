@@ -10,6 +10,7 @@ import TextReviewEditor from "@/components/TextReviewEditor";
 import { prisma } from "@/lib/prisma";
 import { CRITERIA_CONFIG } from "@/lib/constants";
 import { getEpisodeCrew } from "@/lib/credits-parser";
+import ExpandableCast from "@/components/ExpandableCast";
 import ExpandableAniListCast from "@/components/ExpandableAniListCast";
 import { StaffGrid } from "@/components/StaffGrid";
 export default async function EpisodePage({
@@ -65,43 +66,69 @@ export default async function EpisodePage({
       if (!seasonData) notFound();
     }
 
-    const seasonEpisodeCount = seasonData?.episodes || 0;
-    if (epNum < 1 || epNum > seasonEpisodeCount) notFound();
+    const seasonRecord = localMedia.seasons.find((s: any) => s.anilistId === seasonNum);
+    const hybridEpisodes = seasonRecord?.episodeData as any[] | undefined;
+    const seasonEpisodeCount = seasonData?.episodes || (seasonData?.nextAiringEpisode ? seasonData.nextAiringEpisode.episode - 1 : (seasonData?.streamingEpisodes?.length || 0));
+    
+    if (epNum < 1 || (seasonEpisodeCount > 0 && epNum > seasonEpisodeCount && (!hybridEpisodes || epNum > hybridEpisodes.length))) notFound();
 
-    episodes = Array.from({ length: seasonEpisodeCount }, (_, i) => {
-      const ep = seasonData.streamingEpisodes?.[i];
-      if (ep) {
+    if (seasonEpisodeCount && seasonEpisodeCount > 0) {
+      episodes = Array.from({ length: seasonEpisodeCount }, (_, i) => {
+        const aniEpNum = i + 1;
+        const ep = seasonData.streamingEpisodes?.[i];
+        
+        let hybridEp = null;
+        if (hybridEpisodes && hybridEpisodes.length > 0) {
+          hybridEp = hybridEpisodes.find((he: any) => Number(he.episode_number) === aniEpNum);
+        }
+
+        if (hybridEp) {
+          return {
+            id: hybridEp.id || hybridEp.episode_number,
+            name: hybridEp.name || ep?.title || `Episode ${aniEpNum}`,
+            episode_number: aniEpNum,
+            overview: hybridEp.overview || "",
+            image: hybridEp.still_path ? (hybridEp.still_path.startsWith("http") ? hybridEp.still_path : `https://image.tmdb.org/t/p/w780${hybridEp.still_path}`) : (ep?.thumbnail || null),
+            originalImage: hybridEp.still_path ? (hybridEp.still_path.startsWith("http") ? hybridEp.still_path.replace("/w780", "/original") : `https://image.tmdb.org/t/p/original${hybridEp.still_path}`) : (ep?.thumbnail || null),
+            air_date: hybridEp.air_date || "",
+            runtime: hybridEp.runtime || seasonData.duration || 0,
+            globalScore: 0
+          };
+        }
+
         return {
-          id: i + 1,
-          name: ep.title,
-          episode_number: i + 1,
+          id: aniEpNum,
+          name: ep?.title || `Episode ${aniEpNum}`,
+          episode_number: aniEpNum,
           overview: "",
-          image: ep.thumbnail || null,
+          image: ep?.thumbnail || null,
+          originalImage: ep?.thumbnail || null,
           air_date: "",
           runtime: seasonData.duration || 0,
           globalScore: 0
         };
-      }
-      return {
-        id: i + 1,
-        name: `Episode ${i + 1}`,
-        episode_number: i + 1,
-        overview: "",
-        image: null,
-        air_date: "",
-        runtime: seasonData.duration || 0,
+      });
+    } else if (hybridEpisodes && hybridEpisodes.length > 0) {
+      // Fallback if AniList has 0 episodes but TMDb has them
+      episodes = hybridEpisodes.map(hybridEp => ({
+        id: hybridEp.id || hybridEp.episode_number,
+        name: hybridEp.name || `Episode ${hybridEp.episode_number}`,
+        episode_number: Number(hybridEp.episode_number),
+        overview: hybridEp.overview || "",
+        image: hybridEp.still_path ? (hybridEp.still_path.startsWith("http") ? hybridEp.still_path : `https://image.tmdb.org/t/p/w780${hybridEp.still_path}`) : null,
+        originalImage: hybridEp.still_path ? (hybridEp.still_path.startsWith("http") ? hybridEp.still_path.replace("/w780", "/original") : `https://image.tmdb.org/t/p/original${hybridEp.still_path}`) : null,
+        air_date: hybridEp.air_date || "",
+        runtime: hybridEp.runtime || seasonData.duration || 0,
         globalScore: 0
-      };
-    });
+      }));
+    }
 
-    episode = episodes.find((ep) => ep.episode_number === epNum) || null;
+    episode = episodes.find((ep) => Number(ep.episode_number) === Number(epNum)) || null;
     if (!episode) notFound();
 
-    const seasonLabel = seasonData.title?.english || seasonData.title?.romaji || `Season`;
+    const seasonLabel = seasonData?.title?.english || seasonData?.title?.romaji || `Season`;
     episodeFullTitle = `${seasonLabel} - Episode ${epNum}`;
     episodeMediaId = `${id}-s${seasonNum}-e${epNum}`;
-
-    const seasonRecord = localMedia.seasons.find((s: any) => s.anilistId === seasonNum);
     let rawStaffData;
     if (seasonNum === localMedia.anilistId) {
       rawStaffData = localMedia.staffData || seasonData.staff;
@@ -142,6 +169,13 @@ export default async function EpisodePage({
 
   return (
     <main className="min-h-screen bg-gray-950 text-white relative pb-24">
+      {episode.originalImage && (
+        <>
+          <div className="absolute top-0 left-0 w-full h-[60vh] opacity-30 bg-cover bg-center" style={{ backgroundImage: `url(${episode.originalImage})` }} />
+          <div className="absolute top-0 left-0 w-full h-[60vh] bg-gradient-to-t from-gray-950 to-transparent" />
+        </>
+      )}
+      
       <div className="max-w-7xl mx-auto px-8 pt-24 relative z-10">
         <Link
           href={`/media/${id}/season/${seasonNum}`}
@@ -165,26 +199,28 @@ export default async function EpisodePage({
               </div>
             )}
 
-            <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 shadow-xl">
-              <RatingSlider
-                mediaId={episodeMediaId}
-                mediaType="episode"
-                mediaTitle={episodeFullTitle}
-                mediaImage={episode.image}
-              />
-            </div>
+            <RatingSlider
+              mediaId={episodeMediaId}
+              mediaType="episode"
+              mediaTitle={episodeFullTitle}
+              mediaImage={episode.image}
+            />
           </div>
 
           {/* Right Column: Details & Scores */}
           <div className="flex-1">
-            <h1 className="text-4xl sm:text-5xl font-black text-white tracking-tight mb-4">
+            <h1 className="text-4xl sm:text-5xl font-black text-white tracking-tight mb-4 drop-shadow-md">
               {episode.name}
             </h1>
 
-            <div className="flex items-center gap-3 mt-3 mb-4">
+            <div className="flex items-center gap-3 mt-3 mb-6">
+              <span className="text-blue-400 font-bold uppercase tracking-widest text-sm border border-blue-500/30 bg-blue-500/10 px-3 py-1 rounded">
+                Episode {episode.episode_number}
+              </span>
+
               {episode.air_date && (
                 <span className="text-gray-300 font-bold text-sm">
-                  {episode.air_date.split("-")[0]}
+                  {episode.air_date}
                 </span>
               )}
 
@@ -210,8 +246,6 @@ export default async function EpisodePage({
                   </Link>
                 )}
 
-                <p className="text-sm text-blue-400 font-bold uppercase tracking-widest">Episode {episode.episode_number}</p>
-
                 {nextEpisode && (
                   <Link
                     href={`/media/${id}/season/${seasonNum}/episode/${nextEpisode.episode_number}`}
@@ -221,6 +255,10 @@ export default async function EpisodePage({
                   </Link>
                 )}
               </div>
+            </div>
+
+            <div className="mt-8 mb-10 text-lg leading-relaxed text-gray-300 drop-shadow-sm">
+              <ExpandableText text={episode.overview || "No overview available for this episode."} maxLength={500} />
             </div>
 
             {/* DYNAMIC EPISODE CREW GRID */}
@@ -257,11 +295,6 @@ export default async function EpisodePage({
                 )}
               </div>
             ) : null}
-
-            <div className="mt-8">
-              <h3 className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-3">Episode Overview</h3>
-              <ExpandableText text={episode.overview || "No overview available for this episode."} maxLength={300} />
-            </div>
             {/* MASTER STAT BLOCK */}
             <div className="flex flex-wrap gap-8 border-y border-gray-800 py-6 mb-8 mt-8 bg-gray-950/50 rounded-xl px-6">
               <div className="shrink-0">

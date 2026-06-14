@@ -15,22 +15,32 @@ enum MediaType {
 }
 
 model Media {
-  id              String      @id @default(uuid())
-  anilistId       Int?        @unique
+  id              String    @id @default(uuid())
+  anilistId       Int?      @unique
   title           String?
   type            MediaType
-  isMainStoryline Boolean     @default(false)
+  isMainStoryline Boolean   @default(false)
   releaseDate     String?
 
-  relatedMediaId  String?
-  relatedMedia    Media?      @relation("MediaToMedia", fields: [relatedMediaId], references: [id])
-  inverseRelated  Media[]     @relation("MediaToMedia")
+  // External ID Mapping Layer (The Rosetta Stone Columns)
+  tmdbId     Int?    @unique // Used to link Anime to TMDb for episodes
+  igdbId     Int?    @unique // Primary key for the new Video Game backend
+  mangadexId String? @unique // UUID for fetching high-res manga covers
+  malId      Int?    @unique // Required exclusively for Jikan API (MyAnimeList)
 
-  seasons         Season[]
-  episodes        Episode[]
-  staffData       Json?
-  castData        Json?
-  studioData      Json?
+  // New Rich Data Caches
+  themeData Json? // structure: { openings: string[], endings: string[] }
+  watchData Json? // structure: { flatrate: Provider[], rent: Provider[], buy: Provider[] }
+
+  relatedMediaId String?
+  relatedMedia   Media?  @relation("MediaToMedia", fields: [relatedMediaId], references: [id])
+  inverseRelated Media[] @relation("MediaToMedia")
+
+  seasons    Season[]
+  episodes   Episode[]
+  staffData  Json?
+  castData   Json?
+  studioData Json?
 
   franchiseSyncedAt DateTime?
 
@@ -38,24 +48,29 @@ model Media {
 }
 
 model Season {
-  id        String  @id @default(uuid())
-  anilistId Int?    @unique
-  mediaId   String
+  id          String  @id @default(uuid())
+  anilistId   Int?    @unique
+  tmdbId      Int?    @unique
+  episodeData Json?
+  mediaId     String
   releaseDate String?
-  media     Media   @relation(fields: [mediaId], references: [id], onDelete: Cascade)
-  
-  staffData       Json?
-  castData        Json?
-  studioData      Json?
+  media       Media   @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+
+  staffData  Json?
+  castData   Json?
+  studioData Json?
+  themeData  Json?
 
   @@map("seasons")
 }
 
 model Episode {
-  id        String  @id @default(uuid())
-  anilistId Int?    @unique
-  mediaId   String
-  media     Media   @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  id          String @id @default(uuid())
+  anilistId   Int?   @unique
+  tmdbId      Int?   @unique
+  episodeData Json?
+  mediaId     String
+  media       Media  @relation(fields: [mediaId], references: [id], onDelete: Cascade)
 
   @@map("episodes")
 }
@@ -80,30 +95,30 @@ model UserBadge {
 }
 
 model UserList {
-  id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id     String         @db.Uuid
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id     String    @db.Uuid
   title       String
   description String?
   media_type  MediaType
-  created_at  DateTime       @default(now()) @db.Timestamptz(6)
-  updated_at  DateTime       @default(now()) @updatedAt @db.Timestamptz(6)
-  
-  user        User           @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  items       UserListItem[]
+  created_at  DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+
+  user  User           @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  items UserListItem[]
 
   @@index([user_id, media_type])
   @@map("user_lists")
 }
 
 model UserListItem {
-  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  list_id       String    @db.Uuid
+  id            String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  list_id       String  @db.Uuid
   media_id      String
   media_title   String?
   media_image   String?
-  rank_position Int       // 1-indexed relative ordering inside this specific list
-  
-  list          UserList  @relation(fields: [list_id], references: [id], onDelete: Cascade)
+  rank_position Int // 1-indexed relative ordering inside this specific list
+
+  list UserList @relation(fields: [list_id], references: [id], onDelete: Cascade)
 
   @@unique([list_id, media_id])
   @@index([list_id, rank_position])
@@ -111,10 +126,10 @@ model UserListItem {
 }
 
 model GlobalRanking {
-  media_id    String    @id
-  media_type  MediaType
-  elo_score   Float     @default(1200.0)
-  rank        Int?      // Cached global integer ranking position calculated dynamically
+  media_id   String    @id
+  media_type MediaType
+  elo_score  Float     @default(1200.0)
+  rank       Int? // Cached global integer ranking position calculated dynamically
 
   @@index([media_type, elo_score(sort: Desc)])
   @@map("global_rankings")
@@ -122,83 +137,83 @@ model GlobalRanking {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model UserRating {
-  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id         String   @db.Uuid
-  media_id        String
-  media_title     String?
-  media_image     String?
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id            String   @db.Uuid
+  media_id           String
+  media_title        String?
+  media_image        String?
   media_release_date String?
-  score           Int
-  review_text     String?
-  username        String?
-  avatar_url      String?
-  criteria_scores Json?    @default("{}")
-  is_deep_review  Boolean? @default(false)
-  rank_position   Int?
-  created_at      DateTime @default(now()) @db.Timestamptz(6)
-  user            User     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  score              Int
+  review_text        String?
+  username           String?
+  avatar_url         String?
+  criteria_scores    Json?    @default("{}")
+  is_deep_review     Boolean? @default(false)
+  rank_position      Int?
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+  user               User     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([user_id, media_id])
   @@map("user_ratings")
 }
 
 model UserWatchlist {
-  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id         String?   @db.Uuid
+  id              String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id         String?    @db.Uuid
   media_id        String
   media_title     String?
   media_image     String?
   media_type      MediaType?
-  status          String?   @default("plan_to_watch")
-  added_at        DateTime? @default(now()) @db.Timestamptz(6)
-  episodesWatched Int       @default(0)
-  chaptersRead    Int       @default(0)
-  volumesRead     Int       @default(0)
-  user            User?     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  status          String?    @default("plan_to_watch")
+  added_at        DateTime?  @default(now()) @db.Timestamptz(6)
+  episodesWatched Int        @default(0)
+  chaptersRead    Int        @default(0)
+  volumesRead     Int        @default(0)
+  user            User?      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([user_id, media_id])
   @@map("user_watchlist")
 }
 
 model User {
-  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name          String?
-  email         String?   @unique
-  emailVerified DateTime?
-  image         String?
-  created_at    DateTime? @default(now()) @db.Timestamptz(6)
-  realName      String?
-  stateRegion   String?
-  country       String?
-  showcaseBadges String[] @default([])
-  role          String    @default("user")
-  
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String?
+  email          String?   @unique
+  emailVerified  DateTime?
+  image          String?
+  created_at     DateTime? @default(now()) @db.Timestamptz(6)
+  realName       String?
+  stateRegion    String?
+  country        String?
+  showcaseBadges String[]  @default([])
+  role           String    @default("user")
+
   // Relations to the new NextAuth tables and your existing tables
-  accounts      Account[]
-  sessions      Session[]
-  ratings       UserRating[]
-  watchlist     UserWatchlist[]
-  badges        UserBadge[]
-  lists         UserList[]
-  stats_cache   UserStatsCache[]
+  accounts    Account[]
+  sessions    Session[]
+  ratings     UserRating[]
+  watchlist   UserWatchlist[]
+  badges      UserBadge[]
+  lists       UserList[]
+  stats_cache UserStatsCache[]
 
   @@map("users")
 }
 
 // 2. NextAuth Required Tables (OAuth Accounts & Sessions)
 model Account {
-  id                 String  @id @default(cuid())
-  userId             String  @db.Uuid
-  type               String
-  provider           String
-  providerAccountId  String
-  refresh_token      String? @db.Text
-  access_token       String? @db.Text
-  expires_at         Int?
-  token_type         String?
-  scope              String?
-  id_token           String? @db.Text
-  session_state      String?
+  id                String  @id @default(cuid())
+  userId            String  @db.Uuid
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

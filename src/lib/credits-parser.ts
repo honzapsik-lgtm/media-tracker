@@ -321,3 +321,19 @@ export function getEpisodeCrew(staffJson: any, targetEpisodeNumber: number) {
 
   return { primary: uniquePrimary, secondary: uniqueSecondary };
 }
+
+export function normalizeTMDbRole(role: string): string {
+  if (!role) return 'Unknown';
+  const lower = role.toLowerCase().trim();
+  
+  if (lower === 'director of photography') return 'Cinematographer';
+  if (lower === 'original music composer') return 'Composer';
+  if (lower === 'screenplay') return 'Writer';
+  if (lower === 'novel' || lower === 'comic book' || lower === 'author') return 'Original Creator';
+  
+  // Try to match AniList's god tier exactly
+  const godTier = getGodTierRole(role);
+  if (godTier) return godTier;
+
+  return role;
+}

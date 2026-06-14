@@ -2,15 +2,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { MediaCredit } from "@/types";
 
-interface Actor {
-  id: number;
-  name: string;
-  character: string;
-  image: string | null;
-}
-
-export default function ExpandableCast({ cast }: { cast: Actor[] }) {
+export default function ExpandableCast({ cast, title = "Full Cast" }: { cast: MediaCredit[], title?: string }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   if (!cast || cast.length === 0) return null;
@@ -21,7 +15,7 @@ export default function ExpandableCast({ cast }: { cast: Actor[] }) {
   return (
     <div className="lg:col-span-2">
       <div className="flex justify-between items-end mb-6">
-        <h2 className="text-2xl font-bold">Full Cast</h2>
+        <h2 className="text-2xl font-bold">{title}</h2>
         {cast.length > 6 && (
           <button 
             onClick={() => setIsExpanded(!isExpanded)}
@@ -34,7 +28,7 @@ export default function ExpandableCast({ cast }: { cast: Actor[] }) {
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
         {visibleCast.map((actor) => (
-          <Link href={`/person/tmdb-person-${actor.id}`} key={actor.id} className="flex items-center gap-4 bg-gray-900/50 p-3 rounded-xl border border-gray-800/50 hover:bg-gray-800 hover:border-blue-500/50 transition-all group">
+          <Link href={`/person/${actor.id}`} key={actor.id} className="flex items-center gap-4 bg-gray-900/50 p-3 rounded-xl border border-gray-800/50 hover:bg-gray-800 hover:border-blue-500/50 transition-all group">
             {actor.image ? (
               <img src={actor.image} alt={actor.name} className="w-14 h-14 rounded-full object-cover shadow-md border border-gray-700 group-hover:border-blue-500 transition-colors" />
             ) : (
@@ -42,7 +36,7 @@ export default function ExpandableCast({ cast }: { cast: Actor[] }) {
             )}
             <div className="flex-1 min-w-0">
               <p className="font-semibold text-sm text-gray-200 truncate group-hover:text-blue-400 transition-colors">{actor.name}</p>
-              <p className="text-xs text-gray-500 truncate">{actor.character}</p>
+              <p className="text-xs text-gray-500 truncate">{actor.role}</p>
             </div>
           </Link>
         ))}

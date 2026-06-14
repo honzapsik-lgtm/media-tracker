@@ -10,8 +10,10 @@ import TextReviewEditor from "@/components/TextReviewEditor";
 import { prisma } from "@/lib/prisma";
 import { CRITERIA_CONFIG } from "@/lib/constants";
 import { getSeasonCrew, getMasterStudios } from "@/lib/credits-parser";
+import ExpandableCast from "@/components/ExpandableCast";
 import ExpandableAniListCast from "@/components/ExpandableAniListCast";
 import { StaffGrid } from "@/components/StaffGrid";
+import AnimeThemes from "@/components/AnimeThemes";
 
 export interface Episode {
   id: number;
@@ -22,6 +24,7 @@ export interface Episode {
   air_date: string;
   runtime: number;
   globalScore: number;
+  originalImage?: string | null;
 }
 
 interface TmdbSeasonSummary {
@@ -69,6 +72,7 @@ export default async function SeasonPage({
   let seasonStreamingLinks: any[] = [];
   let seasonStudioData: any = null;
   let seasonCastData: any = null;
+  let seasonThemeData: any = null;
   
   const parts = id.split("-");
   const provider = parts[0];
@@ -145,6 +149,7 @@ export default async function SeasonPage({
     seasonStreamingLinks = seasonData.externalLinks?.filter((link: any) => link.type === "STREAMING") || [];
     
     const seasonRecord = localMedia.seasons.find((s: any) => s.anilistId === anilistSeasonId);
+    seasonThemeData = seasonRecord?.themeData || null;
     
     if (anilistSeasonId === localMedia.anilistId) {
       seasonStudioData = localMedia.studioData || seasonData.studios;
@@ -156,32 +161,57 @@ export default async function SeasonPage({
       seasonCredits = getSeasonCrew(seasonRecord?.staffData || seasonData.staff);
     }
 
+    const hybridEpisodes = seasonRecord?.episodeData as any[] | undefined;
+    
     if (seasonEpisodeCount && seasonEpisodeCount > 0) {
       episodes = Array.from({ length: seasonEpisodeCount }, (_, i) => {
+        const aniEpNum = i + 1;
         const ep = seasonData.streamingEpisodes?.[i];
-        if (ep) {
+        
+        let hybridEp = null;
+        if (hybridEpisodes && hybridEpisodes.length > 0) {
+          hybridEp = hybridEpisodes.find((he: any) => Number(he.episode_number) === aniEpNum);
+        }
+
+        if (hybridEp) {
           return {
-            id: i + 1,
-            name: ep.title,
-            episode_number: i + 1,
-            overview: "",
-            image: ep.thumbnail || null,
-            air_date: "",
-            runtime: seasonData.duration || 0,
+            id: hybridEp.id || hybridEp.episode_number,
+            name: hybridEp.name || ep?.title || `Episode ${aniEpNum}`,
+            episode_number: aniEpNum,
+            overview: hybridEp.overview || "",
+            image: hybridEp.still_path ? (hybridEp.still_path.startsWith("http") ? hybridEp.still_path : `https://image.tmdb.org/t/p/w780${hybridEp.still_path}`) : (ep?.thumbnail || null),
+            originalImage: hybridEp.still_path ? (hybridEp.still_path.startsWith("http") ? hybridEp.still_path.replace("/w780", "/original") : `https://image.tmdb.org/t/p/original${hybridEp.still_path}`) : (ep?.thumbnail || null),
+            air_date: hybridEp.air_date || "",
+            runtime: hybridEp.runtime || seasonData.duration || 0,
             globalScore: 0
           };
         }
+
         return {
-          id: i + 1,
-          name: `Episode ${i + 1}`,
-          episode_number: i + 1,
+          id: aniEpNum,
+          name: ep?.title || `Episode ${aniEpNum}`,
+          episode_number: aniEpNum,
           overview: "",
-          image: null,
+          image: ep?.thumbnail || null,
+          originalImage: ep?.thumbnail || null,
           air_date: "",
           runtime: seasonData.duration || 0,
           globalScore: 0
         };
       });
+    } else if (hybridEpisodes && hybridEpisodes.length > 0) {
+      // Fallback if AniList has 0 episodes but TMDb has them
+      episodes = hybridEpisodes.map(hybridEp => ({
+        id: hybridEp.id || hybridEp.episode_number,
+        name: hybridEp.name || `Episode ${hybridEp.episode_number}`,
+        episode_number: Number(hybridEp.episode_number),
+        overview: hybridEp.overview || "",
+        image: hybridEp.still_path ? (hybridEp.still_path.startsWith("http") ? hybridEp.still_path : `https://image.tmdb.org/t/p/w780${hybridEp.still_path}`) : null,
+        originalImage: hybridEp.still_path ? (hybridEp.still_path.startsWith("http") ? hybridEp.still_path.replace("/w780", "/original") : `https://image.tmdb.org/t/p/original${hybridEp.still_path}`) : null,
+        air_date: hybridEp.air_date || "",
+        runtime: hybridEp.runtime || seasonData.duration || 0,
+        globalScore: 0
+      }));
     }
     
     const timelineItems = [
@@ -257,6 +287,8 @@ export default async function SeasonPage({
                 </div>
               </div>
             )}
+            
+            <AnimeThemes themeData={seasonThemeData} />
           </div>
 
           <div className="flex-1">

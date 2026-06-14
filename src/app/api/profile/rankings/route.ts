@@ -25,7 +25,7 @@ export async function GET(request: Request) {
   } else if (type === "movie") {
     mediaFilter = { startsWith: "tmdb-movie-" };
   } else if (type === "game") {
-    mediaFilter = { startsWith: "rawg-game-" };
+    mediaFilter = { OR: [{ startsWith: "rawg-game-" }, { startsWith: "igdb-game-" }] };
   } else if (type === "manga") {
     mediaFilter = { startsWith: "manga-" };
   }

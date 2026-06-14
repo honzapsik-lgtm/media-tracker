@@ -1,7 +1,10 @@
 import { prisma } from "@/lib/prisma";
-import { fetchAnilistNodeEdges, resolveAniListType } from "@/lib/anilist";
+import { fetchAnilistNodeEdges, fetchAnilistNodes, resolveAniListType } from "@/lib/anilist";
 import { MediaType } from "@prisma/client";
 import { revalidatePath } from "next/cache";
+import { getMapping } from "./mal-sync";
+import { getAnimeThemes } from "./jikan";
+import { getTMDbSeasonData, getTMDbDetails } from "./tmdb";
 
 export async function processFranchiseTree(payload: { anilistId: number; internalMediaId: string }) {
   const { anilistId, internalMediaId } = payload;
@@ -60,6 +63,7 @@ export async function processFranchiseTree(payload: { anilistId: number; interna
       staffData: rootData.staff || {},
       castData: rootData.characters || {},
       studioData: rootData.studios || {},
+      mangadexId: rootData.mangadexId || null,
     },
     create: {
       anilistId: rootAnilistId,
@@ -70,6 +74,7 @@ export async function processFranchiseTree(payload: { anilistId: number; interna
       staffData: rootData.staff || {},
       castData: rootData.characters || {},
       studioData: rootData.studios || {},
+      mangadexId: rootData.mangadexId || null,
     }
   });
   // Step 2: Sweep forward using BFS
@@ -85,14 +90,21 @@ export async function processFranchiseTree(payload: { anilistId: number; interna
     if (!nodeData) continue;
 
     // Save the rich metadata for this node if it exists in either table
-    const updatePayload = {
+    const mediaUpdatePayload = {
+      staffData: nodeData.staff || {},
+      castData: nodeData.characters || {},
+      studioData: nodeData.studios || {},
+      mangadexId: nodeData.mangadexId || null,
+    };
+    
+    const seasonUpdatePayload = {
       staffData: nodeData.staff || {},
       castData: nodeData.characters || {},
       studioData: nodeData.studios || {},
     };
     
-    await prisma.media.updateMany({ where: { anilistId: currentId }, data: updatePayload });
-    await prisma.season.updateMany({ where: { anilistId: currentId }, data: updatePayload });
+    await prisma.media.updateMany({ where: { anilistId: currentId }, data: mediaUpdatePayload });
+    await prisma.season.updateMany({ where: { anilistId: currentId }, data: seasonUpdatePayload });
 
     const edges = nodeData.relations?.edges || [];
     for (const edge of edges) {
@@ -204,6 +216,136 @@ export async function processFranchiseTree(payload: { anilistId: number; interna
     where: { id: dbRootMedia.id },
     data: { franchiseSyncedAt: new Date() }
   });
+
+  // Step 4: Execute Cross-Pollination Engine
+  const seasons = await prisma.season.findMany({ where: { mediaId: internalMediaId } });
+  const allNodes = [
+    { type: 'media', id: dbRootMedia.id, anilistId: dbRootMedia.anilistId },
+    ...seasons.map(s => ({ type: 'season', id: s.id, anilistId: s.anilistId }))
+  ];
+
+  const anilistIdsToFetch = allNodes.map(n => n.anilistId).filter(Boolean) as number[];
+  const anilistNodeData = await fetchAnilistNodes(anilistIdsToFetch);
+
+  // Step 4.1: Pre-fetch mappings and determine primary TMDB ID
+  const mappings = new Map();
+  let primaryTmdbId: number | null = null;
+  for (const node of allNodes) {
+    if (!node.anilistId) continue;
+    const mapping = await getMapping(node.anilistId);
+    mappings.set(node.anilistId, mapping);
+    if (!primaryTmdbId && mapping.tmdbId) {
+      primaryTmdbId = mapping.tmdbId;
+    }
+  }
+
+  // Step 4.2: Map Episode Data using Offsets
+  const nodeEpisodeDataMap = new Map(); // anilistId -> episodeData array
+  if (primaryTmdbId && dbRootMedia.type !== MediaType.MOVIE && dbRootMedia.type !== MediaType.MANGA) {
+    const tmdbShow = await getTMDbDetails(primaryTmdbId.toString(), 'tv');
+    if (tmdbShow && tmdbShow.seasons) {
+      const tvNodes = anilistNodeData.filter((n: any) => 
+        ['TV', 'TV_SHORT', 'ONA'].includes(n.format)
+      ).sort((a: any, b: any) => {
+        const dateA = a.startDate?.year ? new Date(a.startDate.year, (a.startDate.month || 1) - 1, a.startDate.day || 1).getTime() : Infinity;
+        const dateB = b.startDate?.year ? new Date(b.startDate.year, (b.startDate.month || 1) - 1, b.startDate.day || 1).getTime() : Infinity;
+        return dateA - dateB;
+      });
+
+      const tmdbSeasons = tmdbShow.seasons
+        .filter((s: any) => s.season_number > 0)
+        .sort((a: any, b: any) => a.season_number - b.season_number);
+
+      let tmdbIdx = 0;
+      let tmdbOffset = 0;
+      let currentTmdbSeasonData = null;
+
+      for (const aNode of tvNodes) {
+        if (tmdbIdx >= tmdbSeasons.length) break;
+        
+        let tmdbS = tmdbSeasons[tmdbIdx];
+        const anilistEpisodeCount = aNode.episodes || (aNode.nextAiringEpisode ? aNode.nextAiringEpisode.episode - 1 : 0);
+        
+        const mapping = mappings.get(aNode.id);
+        
+        // Use explicit offset if provided by MAL-Sync
+        if (mapping && mapping.episodeStart !== null && mapping.episodeStart !== undefined) {
+          // MAL-Sync uses 1-indexed episode_start, so offset is episode_start - 1
+          tmdbOffset = mapping.episodeStart > 0 ? mapping.episodeStart - 1 : 0;
+        }
+
+        if (anilistEpisodeCount > 0) {
+          if (!currentTmdbSeasonData || currentTmdbSeasonData.season_number !== tmdbS.season_number) {
+             const data = await getTMDbSeasonData(primaryTmdbId, tmdbS.season_number);
+             currentTmdbSeasonData = { season_number: tmdbS.season_number, episodes: data || [] };
+          }
+
+          const chunk = currentTmdbSeasonData.episodes.slice(tmdbOffset, tmdbOffset + anilistEpisodeCount);
+          
+          // CRITICAL: Rewrite episode_number to be 1-indexed for the AniList node
+          const mappedChunk = chunk.map((ep: any, idx: number) => ({
+             ...ep,
+             episode_number: idx + 1
+          }));
+
+          if (mappedChunk.length > 0) {
+            nodeEpisodeDataMap.set(aNode.id, mappedChunk);
+          }
+
+          tmdbOffset += anilistEpisodeCount;
+
+          if (tmdbOffset >= tmdbS.episode_count) {
+             tmdbIdx++;
+             tmdbOffset = 0;
+          }
+        }
+      }
+    }
+  }
+
+  // Step 4.3: Process each node and apply themes/episode data
+  for (const node of allNodes) {
+    if (!node.anilistId) continue;
+    
+    const mapping = mappings.get(node.anilistId);
+    const aNode = anilistNodeData.find((n: any) => n.id === node.anilistId);
+    const idMal = aNode?.idMal || mapping.malId || null;
+
+    if (!mapping.tmdbId && !idMal) continue;
+
+    let themes = null;
+    if (idMal) {
+      try {
+        themes = await getAnimeThemes(idMal);
+      } catch (error) {
+        console.error(`[Jikan] Error fetching themes for MAL ID ${idMal}:`, error);
+      }
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+
+    const chunkedEpisodes = nodeEpisodeDataMap.get(node.anilistId);
+
+    if (node.type === 'media') {
+      const updateData: any = {};
+      if (idMal) updateData.malId = idMal;
+      if (mapping.tmdbId) updateData.tmdbId = mapping.tmdbId;
+      if (themes) updateData.themeData = themes;
+      if (chunkedEpisodes) updateData.episodeData = chunkedEpisodes;
+      
+      if (Object.keys(updateData).length > 0) {
+        await prisma.media.update({ where: { id: node.id }, data: updateData });
+      }
+    } else if (node.type === 'season') {
+      const updateData: any = {};
+      if (mapping.tmdbId) updateData.tmdbId = mapping.tmdbId;
+      if (themes) updateData.themeData = themes;
+      if (chunkedEpisodes) updateData.episodeData = chunkedEpisodes;
+      
+      if (Object.keys(updateData).length > 0) {
+        await prisma.season.update({ where: { id: node.id }, data: updateData });
+      }
+    }
+  }
 
   // The absolute final step MUST be to call revalidatePath('/media/[id]') using the local DB ID.
   revalidatePath(`/media/${internalMediaId}`);

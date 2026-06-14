@@ -56,28 +56,34 @@ export default function EpisodeList({ mediaId, seasonNumber, episodes }: Episode
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="flex flex-col gap-2">
         {visibleEpisodes.map((ep) => (
           <Link
             key={ep.id}
             href={`/media/${mediaId}/season/${seasonNumber}/episode/${ep.episode_number}`}
-            className="bg-gray-900/40 p-4 rounded-xl border border-gray-800/60 hover:border-blue-500 hover:bg-gray-800/80 transition-colors flex items-center justify-between group"
+            className="bg-gray-900/40 rounded-lg border border-gray-800/60 hover:border-blue-500 hover:bg-gray-800/80 transition-colors flex items-center justify-between p-3 group shadow-sm"
           >
-            <div className="flex items-center gap-4 truncate mr-2">
-              <div className="text-sm font-black text-gray-500 w-12 text-center group-hover:text-blue-500 transition-colors shrink-0">
+            <div className="flex items-center gap-4 min-w-0">
+              <span className="text-gray-500 font-black text-sm shrink-0 w-12 text-center group-hover:text-blue-500 transition-colors">
                 EP {ep.episode_number}
-              </div>
-              <div className="w-px h-8 bg-gray-800 group-hover:bg-gray-700 transition-colors shrink-0"></div>
-              <div className="truncate">
-                <p className="font-bold text-base text-gray-200 group-hover:text-white transition-colors truncate">{ep.name}</p>
-                {ep.air_date && <p className="text-xs text-gray-500 mt-0.5">{ep.air_date}</p>}
-              </div>
-            </div>
-            {ep.runtime ? (
-              <span className="text-xs font-bold text-gray-600 bg-gray-950 px-2 py-1 rounded border border-gray-800 shrink-0">
-                {ep.runtime}m
               </span>
-            ) : null}
+              <p className="font-bold text-sm text-gray-200 group-hover:text-white transition-colors truncate">
+                {ep.name}
+              </p>
+            </div>
+            
+            <div className="flex items-center gap-3 shrink-0 ml-4">
+              {ep.air_date && (
+                <span className="text-xs text-gray-500 font-medium hidden sm:block">
+                  {ep.air_date}
+                </span>
+              )}
+              {ep.runtime ? (
+                <span className="text-xs font-bold text-gray-600 bg-gray-950 px-2 py-1 rounded border border-gray-800 shadow-inner">
+                  {ep.runtime}m
+                </span>
+              ) : null}
+            </div>
           </Link>
         ))}
       </div>

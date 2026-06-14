@@ -11,6 +11,8 @@ import WatchlistButton from "@/components/WatchlistButton";
 import SyncLoader from "@/components/SyncLoader";
 import ExpandableAniListCast from "@/components/ExpandableAniListCast";
 import { StaffGrid } from '@/components/StaffGrid';
+import WatchProviders from "@/components/WatchProviders";
+import AnimeThemes from "@/components/AnimeThemes";
 import { prisma } from "@/lib/prisma";
 import { CRITERIA_CONFIG } from "@/lib/constants";
 import { getMasterCrew, getMasterStudios, getMasterCast } from "@/lib/credits-parser";
@@ -57,12 +59,14 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
   
   let mediaDetails = null;
   let rawData: any = null;
+  let primaryStaff: any[] = [];
+  let secondaryStaff: any[] = [];
   
   if (provider === 'tmdb') {
     const tmdbType = parts[1] as 'movie' | 'tv'; 
     const externalId = parts[2];
     mediaDetails = await getTMDbDetails(externalId, tmdbType);
-  } else if (provider === 'rawg') {
+  } else if (provider === 'rawg' || provider === 'igdb') {
     mediaDetails = await getGameDetails(parts[2]);
   } else if (provider === 'anilist') {
     const extractedId = parseInt(parts[1]);
@@ -136,6 +140,15 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
   }
 
   if (!mediaDetails) return notFound();
+
+  if (Array.isArray(mediaDetails.credits)) {
+    primaryStaff = mediaDetails.credits.filter((c: any) => ['Director', 'Writer', 'Creator', 'Original Creator', 'Series Composition', 'Developer'].includes(c.role));
+    secondaryStaff = mediaDetails.credits.filter((c: any) => !['Director', 'Writer', 'Creator', 'Original Creator', 'Series Composition', 'Developer'].includes(c.role));
+  } else {
+    primaryStaff = mediaDetails.credits?.primary || [];
+    secondaryStaff = mediaDetails.credits?.secondary || [];
+  }
+
   const mediaTypeKey = (mediaDetails.type as "game" | "movie" | "show" | "manga") || "movie";
 
   const [stats, placementRank, globalData, reviews] = await Promise.all([
@@ -318,6 +331,11 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
               />
             </div>
 
+            <WatchProviders watchData={localDbMedia?.watchData} />
+            {(mediaDetails.type === 'movie' || mediaDetails.type === 'anime') && (
+              <AnimeThemes themeData={localDbMedia?.themeData} />
+            )}
+
             {/* NEW METADATA ROW */}
             <div className="flex flex-wrap items-center gap-3 mt-3 mb-4">
               {mediaDetails.releaseDate && (
@@ -399,11 +417,10 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
               </div>
             ) : (
               <StaffGrid 
-                primaryStaff={mediaDetails.credits?.primary || []} 
-                secondaryStaff={mediaDetails.credits?.secondary || []} 
+                primaryStaff={primaryStaff} 
+                secondaryStaff={secondaryStaff} 
               />
             )}
-
             <ExpandableText text={mediaDetails.description} maxLength={300} />
             
             <div className="flex flex-wrap gap-8 border-y border-gray-800 py-6 mb-8 mt-8 bg-gray-950/50 rounded-xl px-6">
@@ -511,10 +528,10 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
                 ))}
               </div>
             </div>
-          ) : mediaDetails.castData ? (
+          ) : mediaDetails.castData?.edges?.length > 0 ? (
             <ExpandableAniListCast castData={mediaDetails.castData} />
           ) : mediaDetails.cast?.length > 0 ? (
-            <ExpandableCast cast={mediaDetails.cast} />
+            <ExpandableCast cast={mediaDetails.cast.map((c: any) => ({ ...c, id: `tmdb-actor-${c.id}`, role: c.character }))} />
           ) : null}
           {mediaDetails.trailerUrl && (
             <div className="lg:col-span-1">

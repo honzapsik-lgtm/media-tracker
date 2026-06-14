@@ -1,5 +1,6 @@
 import { MediaItem } from "@/types";
 import { prisma } from "@/lib/prisma";
+import { getMangaDexId, getMangaDexCoverUrl } from "./mangadex";
 
 async function fetchWithRetry(url: string, options: RequestInit, retries = 3): Promise<Response> {
   for (let i = 0; i < retries; i++) {
@@ -35,6 +36,7 @@ export async function getAnilistDetails(anilistId: number) {
           query ($id: Int, $page: Int) {
             Media(id: $id) {
               id
+              idMal
               title {
                 romaji
                 english
@@ -161,6 +163,7 @@ export async function fetchAnilistNodeEdges(anilistId: number) {
           query ($id: Int, $page: Int) {
             Media(id: $id) {
               id
+              idMal
               title { romaji english }
               format
               episodes
@@ -277,6 +280,20 @@ export async function fetchAnilistNodeEdges(anilistId: number) {
   }
 
   if (mediaNode) {
+    // MangaDex Augmentation
+    if (['MANGA', 'NOVEL', 'ONE_SHOT'].includes(mediaNode.format)) {
+      const mdId = await getMangaDexId(mediaNode);
+      if (mdId) {
+        mediaNode.mangadexId = mdId;
+        const mdCover = await getMangaDexCoverUrl(mdId);
+        if (mdCover) {
+          mediaNode.coverImage = mediaNode.coverImage || {};
+          mediaNode.coverImage.extraLarge = mdCover;
+          mediaNode.coverImage.large = mdCover;
+        }
+      }
+    }
+
     try {
       await prisma.apiCache.upsert({
         where: { id: cacheKey },
@@ -302,8 +319,12 @@ export async function fetchAnilistNodes(anilistIds: number[]) {
           Page(page: 1, perPage: 50) {
             media(id_in: $ids) {
               id
+              idMal
               title { romaji english }
               episodes
+              format
+              startDate { year month day }
+              nextAiringEpisode { episode }
             }
           }
         }
