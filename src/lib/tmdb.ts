@@ -129,7 +129,7 @@ export async function searchTMDb(query: string): Promise<MediaItem[]> {
 export async function getTMDbDetails(id: string, type: 'movie' | 'tv') {
   const cacheId = `tmdb-${type}-${id}`;
   const cached = await prisma.apiCache.findUnique({ where: { id: cacheId } });
-  if (cached && cached.expires_at > new Date()) {
+  if (cached && cached.data && JSON.stringify(cached.data) !== 'null' && cached.expires_at > new Date()) {
     return cached.data as any;
   }
 
@@ -166,9 +166,9 @@ export async function getTMDbDetails(id: string, type: 'movie' | 'tv') {
 
   crew.forEach((c: any) => {
     const role = normalizeTMDbRole(c.job);
-    if (!credits.find(existing => existing.id === `tmdb-person-${c.id}` && existing.role === role)) {
+    if (!credits.find(existing => existing.id === `tmdb-${c.id}` && existing.role === role)) {
       credits.push({
-        id: `tmdb-person-${c.id}`,
+        id: `tmdb-${c.id}`,
         name: c.name,
         role: role,
         image: c.profile_path ? `https://image.tmdb.org/t/p/w200${c.profile_path}` : null,
@@ -178,9 +178,9 @@ export async function getTMDbDetails(id: string, type: 'movie' | 'tv') {
 
   if (data.created_by) {
     data.created_by.forEach((c: any) => {
-      if (!credits.find(existing => existing.id === `tmdb-person-${c.id}` && existing.role === 'Creator')) {
+      if (!credits.find(existing => existing.id === `tmdb-${c.id}` && existing.role === 'Creator')) {
         credits.push({
-          id: `tmdb-person-${c.id}`,
+          id: `tmdb-${c.id}`,
           name: c.name,
           role: 'Creator',
           image: c.profile_path ? `https://image.tmdb.org/t/p/w200${c.profile_path}` : null,
@@ -213,7 +213,11 @@ export async function getTMDbDetails(id: string, type: 'movie' | 'tv') {
     cast: fullCast,
     seasons: data.seasons || null,
     credits,
-    watchData
+    watchData,
+    studioData: [
+      ...(data.production_companies || []).map((c: any) => ({ id: `tmdb-${c.id}`, name: c.name })),
+      ...(data.networks || []).map((n: any) => ({ id: `tmdbnet-${n.id}`, name: n.name }))
+    ]
   };
 
   const expiresAt = new Date();

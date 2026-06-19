@@ -65,14 +65,14 @@ export function getMasterCrew(staffJsons: any | any[]) {
 
       if (godTierRole) {
         architects.push({
-          id: edge.node.id,
+          id: `anilist-${edge.node.id}`,
           name: edge.node.name?.full || 'Unknown',
           image: edge.node.image?.large || null,
           role: godTierRole
         });
       } else {
         secondary.push({
-          id: edge.node.id,
+          id: `anilist-${edge.node.id}`,
           name: edge.node.name?.full || 'Unknown',
           image: edge.node.image?.large || null,
           role: cleanRole
@@ -139,7 +139,7 @@ export function getSeasonCrew(staffJsons: any | any[]) {
       const godTierRole = getGodTierRole(cleanRole);
 
       const parsedCredit = {
-        id: edge.node.id,
+        id: `anilist-${edge.node.id}`,
         name: edge.node.name?.full || 'Unknown',
         image: edge.node.image?.large || null,
         role: godTierRole ? godTierRole : cleanRole
@@ -284,7 +284,7 @@ export function getEpisodeCrew(staffJson: any, targetEpisodeNumber: number) {
         const isPrimary = lowerClean.includes('director') || lowerClean.includes('storyboard') || lowerClean.includes('script');
         
         const parsedCredit = {
-          id: edge.node.id,
+          id: `anilist-${edge.node.id}`,
           name: edge.node.name?.full || 'Unknown',
           image: edge.node.image?.large || null,
           role: cleanRole

@@ -553,13 +553,14 @@ export async function upsertBaseMedia(rawData: any) {
 
   const dbMedia = await prisma.media.upsert({
     where: { anilistId },
-    update: { title, isMainStoryline: true, releaseDate },
+    update: { title, isMainStoryline: true, releaseDate, mangadexId: rootData.mangadexId || null },
     create: {
       anilistId,
       title,
       type: mediaType,
       isMainStoryline: true,
-      releaseDate
+      releaseDate,
+      mangadexId: rootData.mangadexId || null
     }
   });
 

@@ -144,12 +144,19 @@ export async function processFranchiseTree(payload: { anilistId: number; interna
     rootReleaseDate = `${rootData.startDate.year}-${String(rootData.startDate.month || 1).padStart(2, '0')}-${String(rootData.startDate.day || 1).padStart(2, '0')}`;
   }
   
+  const structuralType = resolveAniListType(rootData.format || '', rootData.episodes, rootData.duration);
+  let rootMediaType: MediaType = MediaType.OTHER;
+  if (structuralType === 'SERIALIZED') rootMediaType = MediaType.SHOW;
+  else if (structuralType === 'FEATURE') rootMediaType = MediaType.MOVIE;
+  else if (structuralType === 'MANGA') rootMediaType = MediaType.MANGA;
+
   const dbRootMedia = await prisma.media.upsert({
     where: { anilistId: rootAnilistId },
     update: { 
       title: rootTitle, 
       isMainStoryline: true, 
       releaseDate: rootReleaseDate,
+      type: rootMediaType,
       staffData: rootData.staff || {},
       castData: rootData.characters || {},
       studioData: rootData.studios || {},
@@ -158,7 +165,7 @@ export async function processFranchiseTree(payload: { anilistId: number; interna
     create: {
       anilistId: rootAnilistId,
       title: rootTitle,
-      type: MediaType.SHOW, 
+      type: rootMediaType, 
       isMainStoryline: true,
       releaseDate: rootReleaseDate,
       staffData: rootData.staff || {},
@@ -384,7 +391,7 @@ export async function processFranchiseTree(payload: { anilistId: number; interna
     if (!mapping.tmdbId && !idMal) continue;
 
     let themes = null;
-    if (idMal) {
+    if (idMal && dbRootMedia.type !== MediaType.MANGA && dbRootMedia.type !== MediaType.GAME) {
       try {
         themes = await getAnimeThemes(idMal);
       } catch (error) {

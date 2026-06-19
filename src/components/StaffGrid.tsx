@@ -4,10 +4,11 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 
 export interface Credit {
-  id: number;
+  id: string | number;
   name: string;
   image: string | null;
   role: string;
+  isCompany?: boolean;
 }
 
 interface StaffGridProps {
@@ -53,7 +54,7 @@ export function StaffGrid({ primaryStaff, secondaryStaff }: StaffGridProps) {
               <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black mb-2">{role}</span>
               <div className="flex flex-col gap-2">
                 {displayCredits.map(credit => (
-                  <Link key={credit.id} href={`/person/${credit.id}`} className="flex items-center gap-2 group">
+                  <Link key={credit.id} href={credit.isCompany ? `/company/${credit.id}` : `/person/${credit.id}`} className="flex items-center gap-2 group">
                     {credit.image ? (
                       <img src={credit.image} alt={credit.name} className="w-6 h-6 rounded-full object-cover" />
                     ) : (
@@ -97,7 +98,7 @@ export function StaffGrid({ primaryStaff, secondaryStaff }: StaffGridProps) {
                     <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black mb-2">{role}</span>
                     <div className="flex flex-col gap-3">
                       {allGrouped[role].map(credit => (
-                        <Link key={`${credit.id}-${credit.role}`} href={`/person/${credit.id}`} className="flex items-center gap-3 group">
+                        <Link key={`${credit.id}-${credit.role}`} href={credit.isCompany ? `/company/${credit.id}` : `/person/${credit.id}`} className="flex items-center gap-3 group">
                           {credit.image ? (
                             <img src={credit.image} alt={credit.name} className="w-8 h-8 rounded-full object-cover" />
                           ) : (

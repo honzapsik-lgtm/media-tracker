@@ -16,6 +16,8 @@ export async function wipeAppData() {
     prisma.apiCache.deleteMany(),
     prisma.systemLog.deleteMany(),
     prisma.userBadge.deleteMany(),
+    prisma.person.deleteMany(),
+    prisma.company.deleteMany(),
     prisma.user.updateMany({
       data: { showcaseBadges: [] },
     }),

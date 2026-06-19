@@ -303,3 +303,47 @@ model SystemLog {
   @@index([jobId])
   @@index([createdAt])
 }
+
+model Person {
+  id                 String   @id @default(uuid())
+  tmdbId             Int?     @unique
+  anilistId          Int?     @unique
+  igdbId             Int?     @unique
+  malId              Int?     @unique
+  rawgId             Int?     @unique
+  
+  name               String
+  nativeName         String?
+  biography          String?
+  profileImage       String?
+  birthDate          String?
+  deathDate          String?
+  knownForDepartment String?
+  
+  mergedCredits      Json?
+  
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@map("people")
+}
+
+model Company {
+  id            String   @id @default(uuid())
+  tmdbId        Int?     @unique
+  anilistId     Int?     @unique
+  igdbId        Int?     @unique
+  tmdbNetworkId Int?     @unique
+  
+  name          String
+  description   String?
+  logoUrl       String?
+  country       String?
+  
+  mergedWorks   Json?
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("companies")
+}

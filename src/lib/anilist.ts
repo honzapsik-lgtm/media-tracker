@@ -21,7 +21,7 @@ export async function getAnilistDetails(anilistId: number) {
   
   try {
     const cached = await prisma.apiCache.findUnique({ where: { id: cacheKey } });
-    if (cached && cached.expires_at > new Date()) {
+    if (cached && cached.data && JSON.stringify(cached.data) !== 'null' && cached.expires_at > new Date()) {
       return cached.data;
     }
   } catch (e) {
@@ -48,6 +48,9 @@ export async function getAnilistDetails(anilistId: number) {
                 episode
               }
               duration
+              chapters
+              volumes
+              status
               streamingEpisodes {
                 title
                 thumbnail
@@ -168,6 +171,8 @@ export async function fetchAnilistNodeEdges(anilistId: number) {
               format
               episodes
               duration
+              chapters
+              volumes
               trailer {
                 id
                 site

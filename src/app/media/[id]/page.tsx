@@ -1,6 +1,6 @@
 import ExpandableCast from "@/components/ExpandableCast";
 import { getTMDbDetails } from "@/lib/tmdb";
-import { getGameDetails } from "@/lib/games";
+import { getGameDetails, getGameCrew } from "@/lib/games";
 
 import RatingSlider from "@/components/RatingSlider";
 import TextReviewEditor from "@/components/TextReviewEditor";
@@ -26,6 +26,10 @@ import {
   upsertBaseMedia,
 } from "@/lib/media-db";
 import { getAnilistDetails } from "@/lib/anilist";
+import GameCharacterGrid from "@/components/GameCharacterGrid";
+import MangaChapters from "@/components/MangaChapters";
+import MangaChaptersLoader from "@/components/MangaChaptersLoader";
+import MangaMetadataPills from "@/components/MangaMetadataPills";
 
 
 
@@ -37,6 +41,45 @@ const getScoreColor = (score: number | null | undefined) => {
   if (score >= 25) return "text-gray-400";
   return "text-gray-700"; 
 };
+
+function getStoreIcon(site: string) {
+  const norm = site.toLowerCase();
+  if (norm.includes('steam')) {
+    return (
+      <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 .007c-6.617 0-12 5.372-12 11.97a11.885 11.885 0 0 0 6.69 10.61l.076-.297a3.868 3.868 0 0 1-1.396-.75l-3.32-1.78a.332.332 0 0 1-.168-.288v-.025a.33.33 0 0 1 .158-.291l4.095-2.215a3.99 3.99 0 0 1 1.705-2.02l2.368-5.368a4 4 0 1 1 5.96 4.96l-3.32 3.32a3.99 3.99 0 0 1-1.92.84l-1.69 5.56a.33.33 0 0 1-.328.232c-.085 0-.17-.035-.23-.095l-1.1-2.51a3.97 3.97 0 0 1-.756-1.348l-3.7-1.98z" />
+      </svg>
+    );
+  }
+  if (norm.includes('playstation')) {
+    return (
+      <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M11.75 3.5c-3.1 0-5.75 2.1-5.75 4.8 0 .8.2 1.5.7 2.1l1.7-1.3c-.3-.3-.4-.6-.4-.8 0-1.5 1.7-2.6 3.75-2.6 1.8 0 3.3.9 3.7 2.2l1.6-.7c-.8-2.2-3.1-3.7-5.3-3.7zm-2.4 7.6c-1.3.4-2.1 1.2-2.1 2.2 0 1.6 2 2.8 4.5 2.8 1.9 0 3.6-.8 4.2-2l-1.6-.8c-.4.7-1.4 1.2-2.6 1.2-1.6 0-2.8-.7-2.8-1.7 0-.4.2-.7.6-.9l-.9-.8z" />
+      </svg>
+    );
+  }
+  if (norm.includes('xbox')) {
+    return (
+      <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-3.87 0-7-3.13-7-7 0-.74.12-1.45.33-2.12L10 16.5v-3.32l-2.46-2.46c.86-.72 1.95-1.15 3.14-1.21V5.5c2.3.11 4.29 1.45 5.16 3.35L14 11.23V14.5l4.67-4.67c.21.67.33 1.38.33 2.12 0 3.87-3.13 7-7 7z" />
+      </svg>
+    );
+  }
+  if (norm.includes('nintendo')) {
+    return (
+      <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M8 2a6 6 0 0 0-6 6v8a6 6 0 0 0 6 6h2V2H8zm0 7.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm8-7.5h-2v20h2a6 6 0 0 0 6-6V8a6 6 0 0 0-6-6zm-2 9a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0z" />
+      </svg>
+    );
+  }
+  // Generic Gamepad
+  return (
+    <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="6" width="20" height="12" rx="3"></rect>
+      <path d="M12 12h.01M15 10h.01M8 12H6v-2h2v2zm0 0v2H6v-2h2z"></path>
+    </svg>
+  );
+}
 
 interface TmdbSeasonSummary { id: number; name: string; season_number: number; episode_count: number; }
 
@@ -78,6 +121,33 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
     mediaDetails = await getTMDbDetails(externalId, tmdbType);
   } else if (provider === 'rawg' || provider === 'igdb') {
     mediaDetails = await getGameDetails(parts[2]);
+    if (mediaDetails) {
+      let releaseYear: number | undefined;
+      if (mediaDetails.releaseDate && mediaDetails.releaseDate !== 'N/A') {
+        const parsedYear = parseInt(mediaDetails.releaseDate.split('-')[0], 10);
+        if (!isNaN(parsedYear)) {
+          releaseYear = parsedYear;
+        }
+      }
+      const rawgCrew = await getGameCrew(mediaDetails.title, releaseYear);
+      const mappedRawgCrew = rawgCrew.map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        role: c.role,
+        image: c.imageUrl,
+        isCompany: false
+      }));
+      primaryStaff = mappedRawgCrew.filter((c: any) =>
+        ['director', 'writer', 'composer'].some(role =>
+          c.role.toLowerCase().includes(role)
+        )
+      );
+      secondaryStaff = mappedRawgCrew.filter((c: any) =>
+        ['design'].some(role =>
+          c.role.toLowerCase().includes(role)
+        )
+      );
+    }
   } else if (provider === 'anilist') {
     const extractedId = parseInt(parts[1]);
     rawData = await getAnilistDetails(extractedId);
@@ -139,19 +209,35 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
       runtime: rawData.duration,
       genres: [],
       trailerUrl: rawData.trailer?.site === "youtube" ? `https://www.youtube.com/embed/${rawData.trailer.id}` : null,
-      streamingLinks: rawData.externalLinks?.filter((link: any) => link.type === "STREAMING") || [],
+      streamingLinks: (() => {
+        const seen = new Set();
+        return (rawData.externalLinks || [])
+          .filter((link: any) => link.type === "STREAMING")
+          .filter((link: any) => {
+            if (!link.site) return false;
+            if (seen.has(link.site)) return false;
+            seen.add(link.site);
+            return true;
+          });
+      })(),
       cast: [],
       seasons: null,
       credits: getMasterCrew(aggregatedStaff),
       castData: getMasterCast(aggregatedCast),
       studioData: getMasterStudios(aggregatedStudio),
-      localDbMedia: localMedia
+      localDbMedia: localMedia,
+      chapters: rawData.chapters || null,
+      volumes: rawData.volumes || null,
+      status: rawData.status || null,
+      mangadexId: localMedia.mangadexId || rawData.mangadexId || null
     };
   }
 
   if (!mediaDetails) return notFound();
 
-  if (Array.isArray(mediaDetails.credits)) {
+  if (provider === 'rawg' || provider === 'igdb') {
+    // Already populated from getGameCrew
+  } else if (Array.isArray(mediaDetails.credits)) {
     primaryStaff = mediaDetails.credits.filter((c: any) => ['Director', 'Writer', 'Creator', 'Original Creator', 'Series Composition', 'Developer'].includes(c.role));
     secondaryStaff = mediaDetails.credits.filter((c: any) => !['Director', 'Writer', 'Creator', 'Original Creator', 'Series Composition', 'Developer'].includes(c.role));
   } else {
@@ -211,7 +297,7 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
 
   let timelineItems: any[] = [];
   let spinoffItems: any[] = [];
-  const isSyncing = franchiseRoot && franchiseRoot.anilistId && !franchiseRoot.franchiseSyncedAt;
+  const isSyncing = mediaTypeKey !== 'manga' && franchiseRoot && franchiseRoot.anilistId && !franchiseRoot.franchiseSyncedAt;
   const isCanonMovie = !!localDbMedia?.relatedMediaId && mediaTypeKey === "movie";
   
   if (franchiseRoot) {
@@ -316,11 +402,28 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
             {/* WHERE TO WATCH */}
             {mediaDetails.streamingLinks && mediaDetails.streamingLinks.length > 0 && (
               <div className="mt-4 bg-gray-950/50 p-5 rounded-2xl border border-gray-800 shadow-xl">
-                <h3 className="text-sm font-black text-gray-500 uppercase tracking-widest mb-4">Where to Watch</h3>
+                <h3 className="text-sm font-black text-gray-500 uppercase tracking-widest mb-4">
+                  {mediaTypeKey === 'manga' ? 'Where to Read' : 'Where to Watch'}
+                </h3>
                 <div className="flex flex-col gap-3">
                   {mediaDetails.streamingLinks.map((link: any) => (
                     <a key={link.url} href={link.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 bg-gray-900 hover:bg-gray-800 p-3 rounded-xl border border-gray-800 hover:border-gray-600 transition-colors">
                       {link.icon ? <img src={link.icon} className="w-6 h-6 object-contain" /> : <div className="w-6 h-6 bg-gray-800 rounded-full"></div>}
+                      <span className="font-bold text-gray-200 text-sm" style={{ color: link.color || '#fff' }}>{link.site}</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* WHERE TO PLAY */}
+            {mediaTypeKey === 'game' && mediaDetails.playLinks && mediaDetails.playLinks.length > 0 && (
+              <div className="mt-4 bg-gray-950/50 p-5 rounded-2xl border border-gray-800 shadow-xl">
+                <h3 className="text-sm font-black text-gray-500 uppercase tracking-widest mb-4">Where to Play</h3>
+                <div className="flex flex-col gap-3">
+                  {mediaDetails.playLinks.map((link: any) => (
+                    <a key={link.url} href={link.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 bg-gray-900 hover:bg-gray-800 p-3 rounded-xl border border-gray-800 hover:border-gray-600 transition-colors">
+                      {getStoreIcon(link.site)}
                       <span className="font-bold text-gray-200 text-sm" style={{ color: link.color || '#fff' }}>{link.site}</span>
                     </a>
                   ))}
@@ -391,6 +494,15 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
                       </span>
                     </>
                   )}
+
+                  {mediaTypeKey === "manga" && (
+                    <MangaMetadataPills
+                      mangadexId={mediaDetails.mangadexId}
+                      initialChapters={mediaDetails.chapters}
+                      initialVolumes={mediaDetails.volumes}
+                      status={mediaDetails.status}
+                    />
+                  )}
                 </>
               )}
 
@@ -404,13 +516,62 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
               )}
             </div>
 
+            {/* DEVELOPERS & PUBLISHERS FOR GAMES */}
+            {mediaTypeKey === 'game' && mediaDetails.companies && (
+              <>
+                {mediaDetails.companies.filter((c: any) => c.isDeveloper).length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    <span className="text-[10px] text-blue-500 uppercase tracking-widest font-black self-center mr-2">Developer</span>
+                    {mediaDetails.companies.filter((c: any) => c.isDeveloper).map((dev: any, idx: number, arr: any[]) => (
+                      <span key={dev.id} className="flex gap-2 items-center">
+                        <Link href={`/company/${dev.id}`} className="text-sm font-bold text-gray-200 hover:text-blue-400 transition-colors">
+                          {dev.name}
+                        </Link>
+                        {idx < arr.length - 1 && <span className="text-gray-600 text-xs font-black">•</span>}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {mediaDetails.companies.filter((c: any) => c.isPublisher).length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    <span className="text-[10px] text-blue-500 uppercase tracking-widest font-black self-center mr-2">Publisher</span>
+                    {mediaDetails.companies.filter((c: any) => c.isPublisher).map((pub: any, idx: number, arr: any[]) => (
+                      <span key={pub.id} className="flex gap-2 items-center">
+                        <Link href={`/company/${pub.id}`} className="text-sm font-bold text-gray-200 hover:text-blue-400 transition-colors">
+                          {pub.name}
+                        </Link>
+                        {idx < arr.length - 1 && <span className="text-gray-600 text-xs font-black">•</span>}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {mediaDetails.engines && mediaDetails.engines.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    <span className="text-[10px] text-blue-500 uppercase tracking-widest font-black self-center mr-2">Engine</span>
+                    {mediaDetails.engines.map((eng: string, idx: number, arr: string[]) => (
+                      <span key={eng} className="flex gap-2 items-center">
+                        <span className="text-sm font-bold text-gray-200">{eng}</span>
+                        {idx < arr.length - 1 && <span className="text-gray-600 text-xs font-black">•</span>}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+
             {/* STUDIOS ROW */}
             {mediaDetails.studioData && mediaDetails.studioData.length > 0 && (
               <div className="flex flex-wrap gap-2 mb-2">
                 <span className="text-[10px] text-blue-500 uppercase tracking-widest font-black self-center mr-2">Studio</span>
                 {mediaDetails.studioData.map((s: any, i: number, arr: any[]) => (
                   <span key={s.id || s} className="flex gap-2 items-center">
-                    <span className="text-sm font-bold text-gray-200">{s.name || s}</span>
+                    {s.id ? (
+                      <Link href={`/company/${s.id.toString().includes('-') ? s.id : `anilist-${s.id}`}`} className="text-sm font-bold text-gray-200 hover:text-blue-400 transition-colors">
+                        {s.name || s}
+                      </Link>
+                    ) : (
+                      <span className="text-sm font-bold text-gray-200">{s.name || s}</span>
+                    )}
                     {i < arr.length - 1 && <span className="text-gray-600 text-xs font-black">•</span>}
                   </span>
                 ))}
@@ -478,7 +639,14 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
             {/* TIMELINE SECTION */}
             {!isCanonMovie && (
               <div className="mt-12 space-y-12">
-                {(timelineItems.length > 0 || isSyncing) && (
+                {mediaTypeKey === 'manga' ? (
+                  mediaDetails.mangadexId ? (
+                    <MangaChapters mangadexId={mediaDetails.mangadexId} totalChapters={mediaDetails.chapters} />
+                  ) : (
+                    <MangaChaptersLoader mediaId={localDbMedia.id} />
+                  )
+                ) : (
+                  (timelineItems.length > 0 || isSyncing) && (
                     <div>
                       <h2 className="text-3xl font-bold mb-8">Narrative Timeline</h2>
                       {isSyncing ? (
@@ -505,7 +673,8 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
                         </div>
                       )}
                     </div>
-                  )}
+                  )
+                )}
 
                   {!isSyncing && spinoffItems.length > 0 && (
                     <div>
@@ -527,7 +696,11 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
 
         {/* RESTORED CAST AND TRAILER SECTION */}
         <div className="grid lg:grid-cols-3 gap-12 pt-8 border-t border-gray-800">
-          {isSyncing ? (
+          {mediaTypeKey === 'game' ? (
+            <div className="lg:col-span-2">
+              <GameCharacterGrid characters={mediaDetails.characters || []} />
+            </div>
+          ) : isSyncing ? (
             <div className="lg:col-span-2">
               <h2 className="text-2xl font-bold mb-6 mt-2">Cast</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -541,9 +714,9 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
               </div>
             </div>
           ) : mediaDetails.castData?.edges?.length > 0 ? (
-            <ExpandableAniListCast castData={mediaDetails.castData} />
+            <ExpandableAniListCast castData={mediaDetails.castData} mediaType={mediaTypeKey} />
           ) : mediaDetails.cast?.length > 0 ? (
-            <ExpandableCast cast={mediaDetails.cast.map((c: any) => ({ ...c, id: `tmdb-actor-${c.id}`, role: c.character }))} />
+            <ExpandableCast cast={mediaDetails.cast.map((c: any) => ({ ...c, id: `tmdb-${c.id}`, role: c.character }))} />
           ) : null}
           {mediaDetails.trailerUrl && (
             <div className="lg:col-span-1">

@@ -22,11 +22,43 @@ export async function getMangaDexId(node: any): Promise<string | null> {
 
   try {
     const encodedTitle = encodeURIComponent(title);
-    const res = await fetch(`https://api.mangadex.org/manga?title=${encodedTitle}&limit=1`);
+    const res = await fetch(`https://api.mangadex.org/manga?title=${encodedTitle}&limit=10`);
     if (!res.ok) return null;
     const data = await res.json();
     if (data.data && data.data.length > 0) {
-      return data.data[0].id;
+      const searchTitles = [node.title?.english, node.title?.romaji]
+        .filter(Boolean)
+        .map((t: string) => t.toLowerCase().trim());
+
+      let bestMangaId = null;
+      let highestScore = -999;
+
+      for (const manga of data.data) {
+        const mainTitles = Object.values(manga.attributes.title || {}).map((t: any) => t.toLowerCase().trim());
+        const altTitles = (manga.attributes.altTitles || []).flatMap((alt: any) => Object.values(alt).map((t: any) => t.toLowerCase().trim()));
+        const allMangaTitles = [...mainTitles, ...altTitles];
+
+        const hasExactMatch = allMangaTitles.some(t => searchTitles.includes(t));
+        let score = hasExactMatch ? 100 : 0;
+
+        const tags = (manga.attributes.tags || []).map((tag: any) => tag.attributes.name.en.toLowerCase());
+        if (tags.includes("official colored") || tags.includes("colored")) {
+          score -= 50;
+        }
+        if (tags.includes("doujinshi")) {
+          score -= 80;
+        }
+        if (tags.includes("fan colored")) {
+          score -= 70;
+        }
+
+        if (score > highestScore) {
+          highestScore = score;
+          bestMangaId = manga.id;
+        }
+      }
+
+      return bestMangaId || data.data[0].id;
     }
   } catch (error) {
     console.error(`[MangaDex Fallback Error] for title "${title}":`, error);

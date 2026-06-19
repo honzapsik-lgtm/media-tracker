@@ -12,6 +12,7 @@ type JobPayload = {
   reason?: string;
   anilistId?: number;
   internalMediaId?: string;
+  personId?: string;
 };
 
 function createWorkerId() {
@@ -66,6 +67,17 @@ async function processJob(job: { id: string; type: string; payload: unknown }, r
       anilistId: payload.anilistId as number, 
       internalMediaId: payload.internalMediaId as string 
     }));
+  } else if (job.type === "syncPersonCrossPlatform") {
+    if (!payload.personId) {
+      throw new Error("syncPersonCrossPlatform job requires personId");
+    }
+    const { processPersonSync } = await import("@/lib/person-sync");
+    await timeOperation({
+      event: "worker.job.sync_person",
+      requestId,
+      slowThresholdMs: PERF_WARN_THRESHOLD_MS * 3,
+      metadata: { source: "processJob", workerId, jobId: job.id, personId: payload.personId },
+    }, () => processPersonSync(payload.personId as string));
   } else {
     throw new Error(`Unknown job type: ${job.type}`);
   }

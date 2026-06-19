@@ -3,12 +3,14 @@
 import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 
-export default function ExpandableAniListCast({ castData }: { castData: any }) {
+export default function ExpandableAniListCast({ castData, mediaType }: { castData: any; mediaType?: string }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [language, setLanguage] = useState("Japanese");
 
+  const isManga = mediaType === "manga";
+
   const availableLanguages = useMemo(() => {
-    if (!castData) return [];
+    if (!castData || isManga) return [];
     const edges = Array.isArray(castData) ? castData : castData.edges;
     if (!edges || !Array.isArray(edges)) return [];
     const langs = new Set<string>();
@@ -18,7 +20,7 @@ export default function ExpandableAniListCast({ castData }: { castData: any }) {
       });
     });
     return Array.from(langs).sort();
-  }, [castData]);
+  }, [castData, isManga]);
 
   useEffect(() => {
     if (availableLanguages.length > 0 && !availableLanguages.includes(language)) {
@@ -41,8 +43,8 @@ export default function ExpandableAniListCast({ castData }: { castData: any }) {
     <div className="lg:col-span-2">
       <div className="flex justify-between items-end mb-6">
         <div className="flex items-center gap-4">
-          <h2 className="text-2xl font-bold">Cast</h2>
-          {availableLanguages.length > 0 && (
+          <h2 className="text-2xl font-bold">{isManga ? "Characters" : "Cast"}</h2>
+          {!isManga && availableLanguages.length > 0 && (
             <select 
               value={language} 
               onChange={(e) => setLanguage(e.target.value)}
@@ -67,7 +69,7 @@ export default function ExpandableAniListCast({ castData }: { castData: any }) {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {visibleCast.map((edge: any) => {
           const char = edge.node;
-          const va = edge.voiceActors?.find((v: any) => v.languageV2 === language);
+          const va = isManga ? null : edge.voiceActors?.find((v: any) => v.languageV2 === language);
           
           return (
             <div key={char.id} className="flex items-center justify-between bg-gray-900/50 p-3 rounded-xl border border-gray-800/50 hover:bg-gray-800 hover:border-blue-500/50 transition-all group">
@@ -85,17 +87,19 @@ export default function ExpandableAniListCast({ castData }: { castData: any }) {
               </Link>
               
               {/* Voice Actor Side */}
-              <Link href={va ? `/person/anilist-staff-${va.id}` : '#'} className="flex items-center gap-3 flex-1 min-w-0 justify-end text-right">
-                <div className="min-w-0">
-                  <p className="font-semibold text-sm text-gray-200 truncate hover:text-blue-400 transition-colors">{va ? va.name?.full : 'N/A'}</p>
-                  <p className="text-xs text-gray-500 truncate">{language}</p>
-                </div>
-                {va?.image?.large ? (
-                  <img src={va.image.large} alt={va.name?.full} className="w-12 h-12 rounded-full object-cover shadow-md border border-gray-700" />
-                ) : (
-                  <div className="w-12 h-12 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center text-xs text-gray-500">N/A</div>
-                )}
-              </Link>
+              {!isManga && (
+                <Link href={va ? `/person/anilist-${va.id}` : '#'} className="flex items-center gap-3 flex-1 min-w-0 justify-end text-right">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-sm text-gray-200 truncate hover:text-blue-400 transition-colors">{va ? va.name?.full : 'N/A'}</p>
+                    <p className="text-xs text-gray-500 truncate">{language}</p>
+                  </div>
+                  {va?.image?.large ? (
+                    <img src={va.image.large} alt={va.name?.full} className="w-12 h-12 rounded-full object-cover shadow-md border border-gray-700" />
+                  ) : (
+                    <div className="w-12 h-12 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center text-xs text-gray-500">N/A</div>
+                  )}
+                </Link>
+              )}
             </div>
           );
         })}

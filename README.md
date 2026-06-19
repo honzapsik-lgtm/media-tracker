@@ -35,7 +35,7 @@ Because the application parses millions of data points from external APIs, the a
 - **Mega-Franchise Pagination:** Safely explore massive, continuous shows (like *One Piece*) using highly optimized, chunk-paginated episode lists that prevent browser latency.
 - **Comprehensive Scoring:** Rate any item on a 1-100% scale. Ratings dynamically contribute to a global "Community Score" for that piece of media.
 - **Deep Reviews:** Don't just give an arbitrary score. Break down your reviews across dynamic criteria (Narrative, Visuals, Acting, Soundtrack, Gameplay) for comprehensive critiques.
-- **Unified Creator Profiles:** Explore deep biographical pages for directors, developers, authors, and actors, showcasing their entire unified cross-media filmographies.
+- **Unified Creator Profiles (Work-In-Progress):** Deep biographical pages for directors, developers, authors, and actors, showcasing their entire unified cross-media filmographies (cross-platform syncing under active construction).
 - **Watchlist Pipeline:** Manage your backlog with "Plan to Watch", "Watching", "Completed", and "Dropped" status tracking.
 - **Gamified Profile Stats:** Unlock dynamic badges and view beautiful statistical breakdowns of your ratings, genre biases, and completion times.
 - **Comprehensive Admin Diagnostics:** Detailed system health tracking, API cache inspection, database integrity checks, performance monitoring, and background job lifecycle management available through dedicated admin dashboards.
@@ -110,6 +110,13 @@ AniList provides raw, unsorted arrays of thousands of staff members per show. To
 ### 8. Anime Themes UI
 Anime themes are displayed as stacked opening and ending sections instead of cramped side-by-side columns. Every opening or ending is rendered as its own pill, so no song entry is dropped. Long song names are clamped inside the pill after three text lines to keep the sidebar readable while preserving the complete set of available theme entries.
 
+### 9. MangaDex Chapters & Licensing Warnings
+To present manga chapters like anime episodes (with volume grouping and dropdowns):
+- **Live MangaDex Feed:** The application maps MangaDex IDs (using score-based matching to prioritize original works over official colored or doujinshi variants) and fetches English chapters directly from the public MangaDex API on the client side.
+- **Client-Side Deduplication:** It groups and deduplicates chapters by chapter number to clean up duplicate scanlation group uploads.
+- **Dynamic Manga Status & Pills:** Displays the status of the manga (e.g. `Publishing`, `Hiatus`, `Finished`) with custom themed colors, and fetches total chapters/volumes from the aggregate endpoint when AniList returns null for ongoing series.
+- **MangaPlus & Viz Licensing Banner:** Detects if intermediate chapters have expired from MangaDex/MangaPlus (due to publisher licensing/simulpub policies) by checking if the fetched chapter count is significantly lower than the highest chapter found. It renders a informative notice to explain the gap to the user.
+
 ---
 
 ## The Global Ranking System & Elo Engine
@@ -127,6 +134,10 @@ To determine the definitive "Global Leaderboard", the platform does not rely on 
 3. **Exponential Time Decay:** Older lists and older ratings degrade in mathematical authority over time, ensuring the Global Leaderboard is a living, breathing reflection of current community consensus rather than being permanently locked by nostalgia.
 
 The result is a highly accurate, tamper-resistant `GlobalRank` cached in PostgreSQL, which acts as the definitive definitive community tier list for all media.
+
+## Under Construction / Upcoming Features
+
+- **Creator Profiles Syncing:** The `syncPersonCrossPlatform` background worker engine to query cross-platform APIs (TMDb, AniList, RAWG) and build out fully unified creator biographies is under active development.
 
 ---
 
