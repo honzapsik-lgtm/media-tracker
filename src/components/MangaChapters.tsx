@@ -181,10 +181,9 @@ export default function MangaChapters({ mangadexId, totalChapters }: MangaChapte
   const isMissingChapters = expectedChapters > 0 && chapters.length < expectedChapters - 5;
 
   return (
-    <div className="mt-12">
+    <div>
       <div className="flex justify-between items-center mb-8">
         <div className="flex flex-col sm:flex-row sm:items-baseline gap-2">
-          <h2 className="text-3xl font-bold">Chapters</h2>
           <span className="text-sm font-semibold text-gray-500">
             ({chapters.length} chapters fetched / {volumes.filter(v => v !== "none").length} volumes)
           </span>

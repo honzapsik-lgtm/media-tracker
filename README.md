@@ -1,114 +1,67 @@
-# Media Tracker
+# Media Tracker: System Architecture & Deep Dive Documentation
 
-Media Tracker is a comprehensive, full-stack Next.js web application designed to be the ultimate centralized hub for discovering, tracking, reviewing, and ranking media. It features a completely unified architecture that treats Movies, TV Shows, Anime, Manga, and Video Games as first-class citizens.
-
-The platform aggregates live data from external APIs (TMDb, RAWG, AniList) and fuses it with a localized PostgreSQL database to handle extremely complex user-generated content, global leaderboard mathematics, and deep analytical tracking.
+This document serves as the absolute source of truth for the **Media Tracker** application. It is intentionally written with extreme detail and depth to provide any developer (or AI assistant, such as Gemini) a complete, holistic understanding of the entire codebase, its architecture, its relational database design, and the complex data pipelines that power it.
 
 ---
 
-## Architecture
+## 1. Core Purpose & Vision
+Media Tracker is a unified, full-stack Next.js web application engineered to be the ultimate centralized hub for discovering, tracking, reviewing, and mathematically ranking all forms of media. Unlike traditional platforms that segregate media (e.g., Letterboxd for movies, MyAnimeList for anime, Backloggd for games), this application treats **Movies, TV Shows, Anime, Manga, and Video Games** as first-class, interconnected citizens within a single unified ecosystem.
 
-The project is built on the modern **Next.js App Router** paradigm, heavily leveraging React Server Components for ultra-fast, SEO-optimized page loads, and localized Client Components for interactive states. 
-
-### Tech Stack
-- **Framework:** Next.js (App Router)
-- **Styling:** Tailwind CSS (with highly customized dynamic UI rendering)
-- **Database:** PostgreSQL
-- **ORM:** Prisma
-- **Authentication:** NextAuth.js (Discord and Google OAuth integrations)
-- **Environment:** Docker Compose (for the local DB)
-- **Background Workers:** In-house asynchronous task queues (`src/app/api/worker/route.ts`)
-
-### Hybrid Data Processing
-Because the application parses millions of data points from external APIs, the architecture utilizes a hybrid processing model:
-1. **Synchronous UI Render:** Core metadata is fetched and aggressively cached so the user interface renders instantly.
-2. **Asynchronous Background Jobs:** Heavy mathematical or graph-traversal logic (e.g., syncing a 1000-episode franchise timeline or recalculating user badges) is deferred to local background workers. The frontend UI intelligently polls the job status and renders loading skeletons until the backend worker completes the heavy lifting and commits the result to PostgreSQL.
+## 2. Technology Stack & Infrastructure
+- **Framework:** Next.js (App Router paradigm) heavily leveraging React Server Components for instantaneous, SEO-optimized renders and strict client-boundary boundaries for interactive components.
+- **Language:** TypeScript (Strict typing enforced across API contracts, UI props, and database queries).
+- **Styling:** Tailwind CSS (configured for highly dynamic, dark-mode-first aesthetic rendering).
+- **Database:** PostgreSQL, running locally via Docker Compose.
+- **ORM:** Prisma, acting as the type-safe bridge between the Next.js backend and the PostgreSQL database.
+- **Authentication:** NextAuth.js configured with OAuth providers (Discord, Google) and session persistence.
+- **Background Workers:** A custom, fully in-house asynchronous task queue (`BackgroundJob` table + `api/worker` routes) used to defer extremely heavy API aggregation tasks.
 
 ---
 
-## Features
+## 3. Database Architecture & "The Rosetta Stone"
+The Prisma schema (`prisma/schema.prisma`) is the heart of the application. It utilizes a powerful normalization strategy to handle wildly different media types through a central `Media` table.
 
-- **Centralized Hub (Home Page):** A unified home page surfacing trending movies, TV shows, games, and manga all in one place, complete with community scores and global list ranks.
-- **Search & Discovery:** Deep search functionality across all supported media types pulling directly from upstream APIs.
-- **Universal Media Tracking:** Search and discover Movies, TV Shows, Anime, Manga, and Games in one seamless interface.
-- **Granular Tracking:** Treat TV Seasons and individual TV Episodes as entirely standalone entities. You can rate, review, and rank Season 2 of a show entirely independently from Season 1.
-- **Mega-Franchise Pagination:** Safely explore massive, continuous shows (like *One Piece*) using highly optimized, chunk-paginated episode lists that prevent browser latency.
-- **Comprehensive Scoring:** Rate any item on a 1-100% scale. Ratings dynamically contribute to a global "Community Score" for that piece of media.
-- **Deep Reviews:** Don't just give an arbitrary score. Break down your reviews across dynamic criteria (Narrative, Visuals, Acting, Soundtrack, Gameplay) for comprehensive critiques.
-- **Unified Creator Profiles (Work-In-Progress):** Deep biographical pages for directors, developers, authors, and actors, showcasing their entire unified cross-media filmographies (cross-platform syncing under active construction).
-- **Watchlist Pipeline:** Manage your backlog with "Plan to Watch", "Watching", "Completed", and "Dropped" status tracking.
-- **Gamified Profile Stats:** Unlock dynamic badges and view beautiful statistical breakdowns of your ratings, genre biases, and completion times.
-- **Comprehensive Admin Diagnostics:** Detailed system health tracking, API cache inspection, database integrity checks, performance monitoring, and background job lifecycle management available through dedicated admin dashboards.
+### 3.1 The Universal `Media` Table
+Every piece of content starts as a row in the `media` table, possessing a universal `id` (UUID), `title`, `type` (SHOW, MOVIE, GAME, MANGA, OTHER), and `releaseDate`.
+
+### 3.2 The External ID Mapping Layer (The Rosetta Stone Columns)
+Because the app aggregates data from multiple disparate sources, the `Media` table acts as a Rosetta Stone, linking various third-party primary keys together:
+- `anilistId`: The primary ID for anime and manga content.
+- `tmdbId`: The primary ID for movies and western TV shows, but also used as a supplementary ID for anime episodic metadata.
+- `igdbId`: The primary ID for the video game backend.
+- `mangadexId`: A UUID specifically used to fetch high-res manga covers and chapter data.
+- `malId`: MyAnimeList ID, used almost exclusively as a translation bridge to query the Jikan API.
+
+### 3.3 Relational Hierarchies (Media -> Seasons -> Episodes)
+The database structure supports extremely granular tracking. 
+- **Standalone Media:** Movies and Games usually only occupy a single `Media` row.
+- **Serialized Media:** TV Shows and Anime utilize `Season` rows linked to a parent `Media`. Each `Season` can possess its own independent `Episode` rows.
+- **Root Season Exception:** For massive franchises, the `Media` row itself often acts as both the franchise container AND the "Season 1" container. Therefore, episodic metadata, streaming watch providers (`watchData`), and anime opening/ending themes (`themeData`) can be stored as JSON blobs either directly on the `Media` table (for Season 1/Roots) or on the `Season` table (for subsequent seasons).
 
 ---
 
-## The AniList Infrastructure & Franchise Pipeline
+## 4. The Mega-Franchise Anime Pipeline
+The most complex logic in the entire application revolves around synchronizing and unifying Anime data. AniList (the primary source) organizes media into a messy, interconnected graph of generic "nodes", while TMDb organizes them strictly into Show -> Season -> Episode hierarchies. The application bridges this gap using the **Mega-Franchise Protocol**.
 
-The AniList integration is the most complex data pipeline in the application. Unlike TMDb, AniList does not cleanly separate "Shows" from "Seasons". Everything is a massive, interconnected web of generic "Nodes" linked by generic relationship edges (e.g., `PREQUEL`, `SEQUEL`, `PARENT`, `SPIN_OFF`).
+### 4.1 True Root Traversal
+When a user queries any random spin-off or sequel season (e.g., *Naruto Shippuden*), the backend intercepts this and executes a recursive GraphQL traversal up the AniList `PREQUEL` and `PARENT` edges. It dynamically calculates the absolute "Root" of the franchise (e.g., *Naruto*), protecting against false usurpers (like an overarching franchise tag taking over a specific TV continuity).
 
-To process anime correctly, the application implements the **Mega-Franchise Protocol**:
+### 4.2 Timeline Construction & Asynchronous Workers
+Once the true root is found, the system dispatches a `BackgroundJob` to map the franchise tree. Because API rate limits and graph traversal are incredibly slow, this happens entirely asynchronously. The UI intelligently polls the job table and displays skeleton loaders to the user until the worker completes.
 
-### 1. The True Root Traversal
-When a user clicks on any random season or spin-off (e.g., *Steins;Gate 0*), the backend does NOT just render that season. It intercepts the request and launches a backwards traversal algorithm using GraphQL.
-The algorithm recursively climbs up the `PREQUEL` and `PARENT` edges to find the absolute "Root" of the franchise. It features strict "Usurper Protection", preventing serial TV shows from artificially yielding their root status to completely unrelated parent nodes.
+### 4.3 Multi-API Cross-Pollination
+The background worker executes a brutal data aggregation sequence:
+1. **AniList** dictates the canonical timeline, deciding what constitutes a canon movie, season, or spin-off.
+2. **MAL-Sync** provides translation, mapping the AniList ID to a MAL ID and attempting to map to a TMDb ID. If the TMDb ID is missing, the worker attempts an intelligent fuzzy-search directly against TMDb using normalized Japanese/English titles.
+3. **Jikan (via MAL ID)** is queried to fetch the actual Opening and Ending songs (`themeData`).
+4. **TMDb** is queried for the `episodeData` (thumbnails, descriptions, runtimes) and `watchData` (Crunchyroll, Netflix streaming links).
 
-### 2. The Timeline Constructor Worker
-Once the True Root is found, it is saved to the PostgreSQL database, and a background worker (`syncAniListFranchiseTree`) is dispatched. This worker crawls back down the franchise tree, mapping out every single canon movie, sequel season, and spin-off, organizing them chronologically by release date to build a seamless UI Timeline.
+### 4.4 TMDb Episodic Chunking
+AniList often splits stories into "Cours" (e.g., Season 3 Part 1 and Season 3 Part 2), while TMDb merges them into a single monolithic Season 3. The worker handles this by downloading all TMDb episodes, sorting them, and then "chunking" or slicing the array based on the exact episode counts provided by AniList. This prevents metadata misalignment in later seasons. 
+- *Fallback Defenses*: For ongoing shows where AniList reports `null` for total episodes, the app falls back to `nextAiringEpisode`, then TMDb's episode array length, to prevent infinite loops and `Unknown Episode` bugs.
 
-### 3. AniList, MAL-Sync, TMDb, and Jikan Cross-Pollination
-After the local franchise tree exists, the worker enriches each AniList node with data from multiple providers:
-
-- **AniList** remains the canonical anime graph source. It decides which entries are the franchise root, serialized seasons/cours, canon movies, and related spin-offs.
-- **MAL-Sync** is used as the first translation layer. For each AniList ID, the worker asks MAL-Sync for a MAL ID, TMDb ID, and any available episode offset metadata.
-- **Jikan** is used through the MAL ID to fetch anime theme data, including openings and endings.
-- **TMDb** is used to fetch episode metadata, still images, air dates, runtimes, watch providers, and normalized TV season information.
-
-MAL-Sync does not always expose a `Sites.TMDB` mapping in the response used by this app. In that case, the worker falls back to TMDb search using the franchise root title. The fallback tries normalized title variants, including removing parentheticals like `(TV)`, then prefers Japanese animated TV results before accepting a broader TV result. This is necessary for franchises such as *JoJo's Bizarre Adventure*, where MAL-Sync currently returns MAL/streaming site data for the AniList endpoint but no TMDb site mapping in the parsed response.
-
-### 4. TMDb Episode Chunking for Anime Cours
-Anime structure on AniList often does not match TMDb season structure. AniList may split a story into multiple cours or parts, while TMDb may store those parts inside a single TV season. The enrichment worker handles this by:
-
-1. Sorting AniList TV-like nodes chronologically.
-2. Sorting TMDb seasons by `season_number`.
-3. Walking TMDb episodes with a stateful cursor.
-4. Slicing TMDb episode arrays by the AniList node's episode count.
-5. Rewriting the visible episode numbers to be local to the AniList season/cour.
-
-This allows examples like *Attack on Titan Season 3* and *Season 3 Part 2* to display the correct TMDb episode metadata even when TMDb stores them as one continuous season. It also prevents later JoJo parts from falling back to the season-1 streaming titles when AniList exposes mismatched or stale `streamingEpisodes` data.
-
-### 5. Root Season Handling
-The application currently treats the franchise root `Media` row as both:
-
-1. The canonical franchise/show container.
-2. The first season/cour in the AniList timeline.
-
-Later seasons are represented by `Season` rows, but the root season is not. Because of that, root-level season enrichment is stored directly on the `Media` row:
-
-- `Media.episodeData` stores TMDb episode metadata for the root season.
-- `Media.themeData` stores Jikan opening/ending data for the root season.
-- Later seasons continue to use `Season.episodeData` and `Season.themeData`.
-
-The season and episode pages explicitly check whether the current season is the root AniList ID. If it is, they read episode/theme data from `Media`; otherwise they read from the matching `Season` row.
-
-### 6. Ongoing Show Episode Counts
-AniList returns `episodes: null` for many currently airing or never-ending shows. The UI therefore resolves known episode counts in a defensive order:
-
-1. AniList `episodes`
-2. AniList `nextAiringEpisode.episode - 1`
-3. cached TMDb `episodeData.length`
-4. AniList `streamingEpisodes.length`
-5. `Unknown`
-
-This prevents ongoing shows such as *One Piece* from showing `Unknown Episodes` when the app already has enough information to display the current known episode count.
-
-### 7. God Tier Credits Extraction & The Dub Blocklist
-AniList provides raw, unsorted arrays of thousands of staff members per show. To build the "Architect" grids (showing the Series Director, Original Creator, Composer, etc.), the backend relies on `src/lib/credits-parser.ts`.
-- **Dynamic Ingestion Limits:** If the worker detects a mega-franchise with >100 episodes, it dynamically quadruples its ingestion loop cap to dig deep into the API and bypass thousands of episode-specific animators.
-- **Regex Blocklists:** A highly aggressive regex engine parses the arrays, instantly dropping any role containing international dub markers (`English`, `Spanish`, `ADR`).
-- **Tiering Logic:** It strips episodic parenthesis markers (e.g., `ep 1-4`) and matches specific exact-string roles (`Series Composition`, `Character Design`) to separate the true masterminds from secondary staff, presenting a beautiful, deduplicated crew layout.
-
-### 8. Anime Themes UI
-Anime themes are displayed as stacked opening and ending sections instead of cramped side-by-side columns. Every opening or ending is rendered as its own pill, so no song entry is dropped. Long song names are clamped inside the pill after three text lines to keep the sidebar readable while preserving the complete set of available theme entries.
+### 4.5 Jikan Franchise Pipeline (MAL Fallback)
+For scenarios requiring MyAnimeList-centric metadata mapping, the system incorporates a fallback Jikan franchise graph crawler (`src/lib/jikan-franchise.ts`). This module recursively traverses relations (Sequels, Prequels, Spin-offs) from the Jikan API using rate-limit backoffs to construct a unified canonical timeline and updates relevant API caches.
 
 ### 9. MangaDex Chapters & Licensing Warnings
 To present manga chapters like anime episodes (with volume grouping and dropdowns):
@@ -119,21 +72,19 @@ To present manga chapters like anime episodes (with volume grouping and dropdown
 
 ---
 
-## The Global Ranking System & Elo Engine
+## 5. User Profiles, Ranking, & the Elo Engine
+Media Tracker moves beyond traditional 5-star logging and implements competitive tiering.
 
-Media Tracker is not just a logging app; it is a competitive tier list engine.
+### 5.1 Deep Reviews & Gamification
+Users log media in the `user_ratings` table. They can provide a simple 1-100 score, or write a **Deep Review**, which breaks the score down across dynamic JSON criteria (Narrative, Visuals, Acting, Soundtrack, Gameplay).
+Users also earn `UserBadge` unlocks for specific milestones, displayed on their unified profiles alongside dynamic statistics (genre bias, total watch time).
 
-### Personal Lists
-Users can create infinite custom lists (e.g., "Top 10 RPGs of all time") and physically drag-and-drop media items into exact ranking positions.
-
-### The Rank Aggregation Engine
-To determine the definitive "Global Leaderboard", the platform does not rely on simple score averaging (which is easily skewed by review bombing). Instead, it uses an advanced, mathematical aggregation engine that processes personal lists.
-
-1. **Positional Weighting:** The engine parses the exact position of an item in a user's list.
-2. **Emotional Score Gap Mathematics:** It cross-references the user's actual rating score for that item and calculates the mathematical gap to apply severity weighting.
-3. **Exponential Time Decay:** Older lists and older ratings degrade in mathematical authority over time, ensuring the Global Leaderboard is a living, breathing reflection of current community consensus rather than being permanently locked by nostalgia.
-
-The result is a highly accurate, tamper-resistant `GlobalRank` cached in PostgreSQL, which acts as the definitive definitive community tier list for all media.
+### 5.2 The Rank Aggregation Engine (Elo Leaderboards)
+The platform allows users to build infinite custom `UserList`s and drag-and-drop items into exact relative positions (`user_list_items`).
+A dedicated background algorithm aggregates these positions globally to generate a definitive tier list in the `global_rankings` table.
+- **Positional Weighting:** The mathematical value of a ranking is weighted by its exact position.
+- **Emotional Score Gaps:** The engine calculates the differential between the user's raw score and their list position to establish severity.
+- **Exponential Time Decay:** Older lists lose mathematical authority over time, preventing early review-bombing or nostalgia from permanently locking the global leaderboard.
 
 ## Under Construction / Upcoming Features
 
@@ -141,47 +92,16 @@ The result is a highly accurate, tamper-resistant `GlobalRank` cached in Postgre
 
 ---
 
-## Local Setup
+## 6. Frontend Presentation Layer
+The UI is built to scale gracefully between standard items and massive franchises.
+- **Dynamic Chunked Pagination:** For Anime/TV shows exceeding 50 episodes, the `<EpisodeList>` component dynamically splits the episodes into chunks of 50. It maintains a strict **Universal Ascending (1 to N)** sort logic, automatically generating precise dropdown labels (e.g., "Episodes 1 - 50", "Episodes 51 - 100"). The episode number badges are securely decoupled from array indices.
+- **Anime Themes Stack:** The `<AnimeThemes>` component renders massive arrays of openings/endings as stacked pills, utilizing strict text-line clamping to prevent UI bloat while retaining all data.
+- **God-Tier Credits Parser:** The `credits-parser` logic sifts through thousands of raw AniList staff nodes. It uses complex Regex blocklists to instantly drop international dub voice actors (English, Spanish, etc.) and specific string matching to bubble up the "Architects" (Series Director, Original Creator, Composer) into a dedicated top-level UI grid.
 
-1. **Environment Variables**: Create a local `.env` file in the project root:
-   ```env
-   DATABASE_URL="postgresql://admin:localpassword123@localhost:5432/media_app"
-   NEXTAUTH_URL="http://localhost:3000"
-   NEXTAUTH_SECRET="replace-with-a-local-secret"
-   TMDB_API_KEY="your-tmdb-api-key"
-   RAWG_API_KEY="your-rawg-api-key"
-   DISCORD_CLIENT_ID="your-discord-client-id"
-   DISCORD_CLIENT_SECRET="your-discord-client-secret"
-   GOOGLE_CLIENT_ID="your-google-client-id"
-   GOOGLE_CLIENT_SECRET="your-google-client-secret"
-   ```
+---
 
-2. **Install Dependencies**:
-   ```bash
-   npm install
-   ```
-
-3. **Start Database**:
-   ```bash
-   docker compose up -d db
-   ```
-
-4. **Initialize Prisma**:
-   ```bash
-   npx prisma generate
-   npx prisma db push
-   ```
-
-5. **Start Development Server**:
-   ```bash
-   npm run dev
-   ```
-   Open `http://localhost:3000` to view the app.
-
-## Useful Scripts
-
-- `npm run dev` - Start local development server
-- `npm run build` - Build for production
-- `npm run db:wipe` - Developer tool to wipe all app data while preserving auth users/sessions
-- `npm run make-admin -- user@example.com` - Promote a local user account to Admin
-- `npm run make-user -- user@example.com` - Demote a local user account back to User
+## 7. Developer Tooling & Admin Dashboard
+The app ships with robust tools for maintainers:
+- **`src/lib/db-wipe.ts` & Admin UI Nuke:** A highly specific nuclear script mapped to the Admin Dashboard via a secure client-side **Nuke Database** button (`WipeDatabaseButton.tsx` and Server Action). It targets and wipes all `episodes`, `seasons`, `media`, `user_ratings`, `user_lists`, `background_jobs`, `api_cache`, and `system_logs`. It intentionally requiring double-confirmation ("nuke" text prompt verification) and spares `users`, `accounts`, `sessions`, and `verification_tokens` so that Admin rights and OAuth sessions survive the wipe.
+- **`system_logs`:** Every major action, error, or background worker lifecycle event is logged directly to PostgreSQL for inspection in the Admin UI.
+- **`npm run make-admin`:** A command-line script to rapidly promote a user's role to Admin.

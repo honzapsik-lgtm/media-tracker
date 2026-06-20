@@ -70,7 +70,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "mediaId is required" }, { status: 400 });
   }
 
-  const mediaType: MediaType = (body.type as MediaType) || inferMediaType(body.mediaId);
+  const rawType = body.type;
+  const mediaType: MediaType = (typeof rawType === "string" ? rawType.toUpperCase() as MediaType : null) || inferMediaType(body.mediaId);
   const item = await timeOperation({
     event: "watchlist.mutation",
     requestId,
@@ -121,12 +122,14 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "mediaId and status are required" }, { status: 400 });
   }
 
+  const rawType = body.type;
+  const mediaType: MediaType = (typeof rawType === "string" ? rawType.toUpperCase() as MediaType : null) || inferMediaType(body.mediaId);
   const item = await timeOperation({
     event: "watchlist.mutation",
     requestId,
     userId: session.user.id,
     mediaId: body.mediaId,
-    mediaType: (body.type as MediaType) || inferMediaType(body.mediaId),
+    mediaType,
     slowThresholdMs: PERF_WARN_THRESHOLD_MS,
     metadata: {
       source: "watchlist.PATCH",

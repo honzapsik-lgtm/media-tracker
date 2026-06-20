@@ -39,7 +39,8 @@ export async function getMangaDexId(node: any): Promise<string | null> {
         const allMangaTitles = [...mainTitles, ...altTitles];
 
         const hasExactMatch = allMangaTitles.some(t => searchTitles.includes(t));
-        let score = hasExactMatch ? 100 : 0;
+        const hasPartialMatch = allMangaTitles.some(t => searchTitles.some(st => t.includes(st) || st.includes(t)));
+        let score = hasExactMatch ? 100 : hasPartialMatch ? 50 : 0;
 
         const tags = (manga.attributes.tags || []).map((tag: any) => tag.attributes.name.en.toLowerCase());
         if (tags.includes("official colored") || tags.includes("colored")) {
@@ -58,7 +59,10 @@ export async function getMangaDexId(node: any): Promise<string | null> {
         }
       }
 
-      return bestMangaId || data.data[0].id;
+      if (highestScore >= 40) {
+        return bestMangaId;
+      }
+      return null;
     }
   } catch (error) {
     console.error(`[MangaDex Fallback Error] for title "${title}":`, error);

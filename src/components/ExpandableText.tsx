@@ -12,8 +12,13 @@ export default function ExpandableText({ text, maxLength = 250 }: ExpandableText
 
   if (!text) return <p className="text-gray-400 italic">No description available.</p>;
 
-  // Replace <br> with actual newlines, then strip any remaining HTML tags
-  const cleanText = text.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>?/gm, '');
+  // Replace <br> with actual newlines, strip remaining HTML tags, and collapse 3+ consecutive newlines to 2
+  const cleanText = text
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]*>?/gm, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 
   // Check if the text is actually long enough to need hiding
   const isLong = cleanText.length > maxLength;

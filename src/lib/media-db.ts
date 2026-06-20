@@ -491,55 +491,60 @@ export async function upsertBaseMedia(rawData: any) {
   let anilistId = rawData.id;
   let rootData = rawData;
   
-  // 1. Traverse backward synchronously to find absolute root to prevent 404s
-  const visitedBackward = new Set<number>();
-  let currentId = anilistId;
-  let currentData = rootData;
-  
-  const { fetchAnilistNodeEdges } = await import('@/lib/anilist');
-  
-  while (true) {
-    if (visitedBackward.has(currentId)) break;
-    visitedBackward.add(currentId);
+  const initialStructuralType = resolveAniListType(rawData.format || '', rawData.episodes, rawData.duration);
+  const isManga = initialStructuralType === 'MANGA';
+
+  if (!isManga) {
+    // 1. Traverse backward synchronously to find absolute root to prevent 404s
+    const visitedBackward = new Set<number>();
+    let currentId = anilistId;
+    let currentData = rootData;
     
-    // If we hit an existing root in DB, use it
-    const existingMedia = await prisma.media.findUnique({ where: { anilistId: currentId } });
-    if (existingMedia && existingMedia.isMainStoryline) {
-        break;
-    }
+    const { fetchAnilistNodeEdges } = await import('@/lib/anilist');
     
-    let edges = currentData.relations?.edges || [];
-    if (!edges.length) {
-       const fullData = await fetchAnilistNodeEdges(currentId);
-       if (fullData) {
-         currentData = fullData;
-         edges = currentData.relations?.edges || [];
-       }
-    }
-    
-    const parentEdge = edges.find((e: any) => {
-      if (e.relationType === 'PREQUEL' || e.relationType === 'PARENT') {
-        if (e.relationType === 'PARENT' && ['TV', 'TV_SHORT'].includes(currentData.format || '')) return false;
-        if (['TV', 'TV_SHORT'].includes(currentData.format || '')) {
-          if (!['TV', 'TV_SHORT'].includes(e.node?.format || '')) return false;
-        }
-        return true;
+    while (true) {
+      if (visitedBackward.has(currentId)) break;
+      visitedBackward.add(currentId);
+      
+      // If we hit an existing root in DB, use it
+      const existingMedia = await prisma.media.findUnique({ where: { anilistId: currentId } });
+      if (existingMedia && existingMedia.isMainStoryline) {
+          break;
       }
-      return false;
-    });
-    
-    if (parentEdge && parentEdge.node) {
-      currentId = parentEdge.node.id;
-      const nextData = await fetchAnilistNodeEdges(currentId);
-      if (nextData) currentData = nextData;
-      else break;
-    } else {
-      break;
+      
+      let edges = currentData.relations?.edges || [];
+      if (!edges.length) {
+         const fullData = await fetchAnilistNodeEdges(currentId);
+         if (fullData) {
+           currentData = fullData;
+           edges = currentData.relations?.edges || [];
+         }
+      }
+      
+      const parentEdge = edges.find((e: any) => {
+        if (e.relationType === 'PREQUEL' || e.relationType === 'PARENT') {
+          if (e.relationType === 'PARENT' && ['TV', 'TV_SHORT'].includes(currentData.format || '')) return false;
+          if (['TV', 'TV_SHORT'].includes(currentData.format || '')) {
+            if (!['TV', 'TV_SHORT'].includes(e.node?.format || '')) return false;
+          }
+          return true;
+        }
+        return false;
+      });
+      
+      if (parentEdge && parentEdge.node) {
+        currentId = parentEdge.node.id;
+        const nextData = await fetchAnilistNodeEdges(currentId);
+        if (nextData) currentData = nextData;
+        else break;
+      } else {
+        break;
+      }
     }
+    
+    anilistId = currentId;
+    rootData = currentData;
   }
-  
-  anilistId = currentId;
-  rootData = currentData;
 
   const title = rootData.title?.english || rootData.title?.romaji || `AniList ${anilistId}`;
   
@@ -551,24 +556,51 @@ export async function upsertBaseMedia(rawData: any) {
 
   const releaseDate = rootData.startDate?.year ? `${rootData.startDate.year}-${String(rootData.startDate.month || 1).padStart(2, '0')}-${String(rootData.startDate.day || 1).padStart(2, '0')}` : null;
 
+  let mangadexId = rootData.mangadexId || null;
+  if (mangadexId) {
+    const existingWithMangaDex = await prisma.media.findFirst({
+      where: {
+        mangadexId,
+        NOT: { anilistId }
+      }
+    });
+    if (existingWithMangaDex) {
+      mangadexId = null;
+    }
+  }
+
   const dbMedia = await prisma.media.upsert({
     where: { anilistId },
-    update: { title, isMainStoryline: true, releaseDate, mangadexId: rootData.mangadexId || null },
+    update: { title, isMainStoryline: true, releaseDate, mangadexId },
     create: {
       anilistId,
       title,
       type: mediaType,
       isMainStoryline: true,
       releaseDate,
-      mangadexId: rootData.mangadexId || null
+      mangadexId
     }
   });
 
-  await enqueueJob({
-    type: "syncAniListFranchiseTree",
-    payload: { anilistId, internalMediaId: dbMedia.id },
-    dedupeKey: `sync_anilist_${anilistId}`,
-  });
+  let shouldEnqueue = true;
+  if (isManga) {
+    let rootMedia = dbMedia;
+    if (dbMedia.relatedMediaId) {
+      const foundRoot = await prisma.media.findUnique({ where: { id: dbMedia.relatedMediaId } });
+      if (foundRoot) rootMedia = foundRoot;
+    }
+    if (rootMedia.franchiseSyncedAt) {
+      shouldEnqueue = false;
+    }
+  }
+
+  if (shouldEnqueue) {
+    await enqueueJob({
+      type: "syncAniListFranchiseTree",
+      payload: { anilistId, internalMediaId: dbMedia.id },
+      dedupeKey: `sync_anilist_${anilistId}`,
+    });
+  }
 
   return dbMedia;
 }

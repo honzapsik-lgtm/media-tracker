@@ -35,7 +35,7 @@ export default function ExpandableAniListCast({ castData, mediaType }: { castDat
   const mainCharacters = edges.filter((e: any) => e.role === 'MAIN');
   const supportingCharacters = edges.filter((e: any) => e.role !== 'MAIN');
   
-  const defaultVisibleCount = Math.max(6, mainCharacters.length);
+  const defaultVisibleCount = 6;
   const sortedCast = [...mainCharacters, ...supportingCharacters];
   const visibleCast = isExpanded ? sortedCast : sortedCast.slice(0, defaultVisibleCount);
 

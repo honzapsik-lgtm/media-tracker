@@ -150,6 +150,19 @@ export async function processFranchiseTree(payload: { anilistId: number; interna
   else if (structuralType === 'FEATURE') rootMediaType = MediaType.MOVIE;
   else if (structuralType === 'MANGA') rootMediaType = MediaType.MANGA;
 
+  let rootMangadexId = rootData.mangadexId || null;
+  if (rootMangadexId) {
+    const existingWithMangaDex = await prisma.media.findFirst({
+      where: {
+        mangadexId: rootMangadexId,
+        NOT: { anilistId: rootAnilistId }
+      }
+    });
+    if (existingWithMangaDex) {
+      rootMangadexId = null;
+    }
+  }
+
   const dbRootMedia = await prisma.media.upsert({
     where: { anilistId: rootAnilistId },
     update: { 
@@ -160,7 +173,7 @@ export async function processFranchiseTree(payload: { anilistId: number; interna
       staffData: rootData.staff || {},
       castData: rootData.characters || {},
       studioData: rootData.studios || {},
-      mangadexId: rootData.mangadexId || null,
+      mangadexId: rootMangadexId,
     },
     create: {
       anilistId: rootAnilistId,
@@ -171,7 +184,7 @@ export async function processFranchiseTree(payload: { anilistId: number; interna
       staffData: rootData.staff || {},
       castData: rootData.characters || {},
       studioData: rootData.studios || {},
-      mangadexId: rootData.mangadexId || null,
+      mangadexId: rootMangadexId,
     }
   });
   // Step 2: Sweep forward using BFS
@@ -187,11 +200,24 @@ export async function processFranchiseTree(payload: { anilistId: number; interna
     if (!nodeData) continue;
 
     // Save the rich metadata for this node if it exists in either table
+    let nodeMangadexId = nodeData.mangadexId || null;
+    if (nodeMangadexId) {
+      const existingWithMangaDex = await prisma.media.findFirst({
+        where: {
+          mangadexId: nodeMangadexId,
+          NOT: { anilistId: currentId }
+        }
+      });
+      if (existingWithMangaDex) {
+        nodeMangadexId = null;
+      }
+    }
+
     const mediaUpdatePayload = {
       staffData: nodeData.staff || {},
       castData: nodeData.characters || {},
       studioData: nodeData.studios || {},
-      mangadexId: nodeData.mangadexId || null,
+      mangadexId: nodeMangadexId,
     };
     
     const seasonUpdatePayload = {
@@ -217,6 +243,7 @@ export async function processFranchiseTree(payload: { anilistId: number; interna
       // We will check if it's already in the queue to optimize, but visitedForward check is sufficient.
       
       const targetStructuralType = resolveAniListType(targetNode.format || '', targetNode.episodes, targetNode.duration);
+      const isTargetManga = targetStructuralType === 'MANGA';
       // We strictly DO NOT follow 'CHARACTER' or 'OTHER' edges to prevent massive Kodansha/Isekai crossover graph explosions!
       const isSpinOffEdge = ['SPIN_OFF', 'SIDE_STORY', 'SUMMARY', 'ALTERNATIVE'].includes(relation);
       const isCanonMovie = targetStructuralType === 'FEATURE' && ['SEQUEL', 'PREQUEL'].includes(relation);
@@ -228,6 +255,31 @@ export async function processFranchiseTree(payload: { anilistId: number; interna
       let targetReleaseDate = null;
       if (targetNode.startDate?.year) {
         targetReleaseDate = `${targetNode.startDate.year}-${String(targetNode.startDate.month || 1).padStart(2, '0')}-${String(targetNode.startDate.day || 1).padStart(2, '0')}`;
+      }
+
+      if (dbRootMedia.type === MediaType.MANGA) {
+        // Manga Specific Sync Logic: Upsert manga nodes as standalone Media, link to root, and add to queue
+        if (isTargetManga && ['SEQUEL', 'PREQUEL', 'PARENT', 'SPIN_OFF', 'SIDE_STORY', 'ALTERNATIVE', 'SUMMARY'].includes(relation)) {
+          await prisma.media.upsert({
+            where: { anilistId: targetId },
+            update: { 
+              relatedMediaId: dbRootMedia.id,
+              isMainStoryline: true,
+              type: MediaType.MANGA,
+              releaseDate: targetReleaseDate
+            },
+            create: {
+              anilistId: targetId,
+              title: targetNode.title.english || targetNode.title.romaji || `AniList ${targetId}`,
+              type: MediaType.MANGA,
+              relatedMediaId: dbRootMedia.id,
+              isMainStoryline: true,
+              releaseDate: targetReleaseDate
+            }
+          });
+          queue.push(targetId);
+        }
+        continue;
       }
 
       if (isSpinOffEdge || isSerializedSpinOff) {
@@ -404,8 +456,23 @@ export async function processFranchiseTree(payload: { anilistId: number; interna
 
     if (node.type === 'media') {
       const updateData: any = {};
-      if (idMal) updateData.malId = idMal;
-      if (mapping.tmdbId || primaryTmdbId) updateData.tmdbId = mapping.tmdbId || primaryTmdbId;
+      if (idMal) {
+        const existing = await prisma.media.findFirst({
+          where: { malId: idMal, NOT: { id: node.id } }
+        });
+        if (!existing) {
+          updateData.malId = idMal;
+        }
+      }
+      if (mapping.tmdbId || primaryTmdbId) {
+        const val = mapping.tmdbId || primaryTmdbId;
+        const existing = await prisma.media.findFirst({
+          where: { tmdbId: val, NOT: { id: node.id } }
+        });
+        if (!existing) {
+          updateData.tmdbId = val;
+        }
+      }
       if (themes) updateData.themeData = themes;
       if (chunkedEpisodes) updateData.episodeData = chunkedEpisodes;
       

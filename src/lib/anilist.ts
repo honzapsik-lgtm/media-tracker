@@ -105,6 +105,7 @@ export async function getAnilistDetails(anilistId: number) {
                       romaji
                       english
                     }
+                    format
                     episodes
                     coverImage {
                       extraLarge
@@ -365,7 +366,7 @@ export async function searchAniList(query: string): Promise<MediaItem[]> {
     body: JSON.stringify({
       query: `
         query ($search: String) {
-          Page(page: 1, perPage: 15) {
+          Page(page: 1, perPage: 50) {
             media(search: $search, sort: POPULARITY_DESC) {
               id
               title {
@@ -399,7 +400,7 @@ export async function searchAniList(query: string): Promise<MediaItem[]> {
       `,
       variables: { search: query }
     }),
-    next: { revalidate: 3600 }
+    next: { revalidate: 60 }
   });
 
   if (!response.ok) {
@@ -418,26 +419,29 @@ export async function searchAniList(query: string): Promise<MediaItem[]> {
     
     // Deduplication check
     const edges = item.relations?.edges || [];
-    const hasSerializedParentOrPrequel = edges.some((edge: any) => {
-      if (edge.relationType === 'PREQUEL' || edge.relationType === 'PARENT') {
-        // TV shows should NEVER be hidden by a PARENT relation, only by PREQUEL (previous seasons).
-        // This prevents Steins;Gate (TV) from being hidden by Chaos;Head (TV).
-        if (edge.relationType === 'PARENT' && ['TV', 'TV_SHORT'].includes(item.format || '')) {
-          return false;
-        }
-
-        // Usurper Protection: If current node is TV, only yield to TV
-        if (['TV', 'TV_SHORT'].includes(item.format || '')) {
-          if (!['TV', 'TV_SHORT'].includes(edge.node?.format || '')) {
+    let hasSerializedParentOrPrequel = false;
+    if (structuralType === 'SERIALIZED') {
+      hasSerializedParentOrPrequel = edges.some((edge: any) => {
+        if (edge.relationType === 'PREQUEL' || edge.relationType === 'PARENT') {
+          // TV shows should NEVER be hidden by a PARENT relation, only by PREQUEL (previous seasons).
+          // This prevents Steins;Gate (TV) from being hidden by Chaos;Head (TV).
+          if (edge.relationType === 'PARENT' && ['TV', 'TV_SHORT'].includes(item.format || '')) {
             return false;
           }
-        }
 
-        const parentType = resolveAniListType(edge.node?.format || '', edge.node?.episodes, edge.node?.duration);
-        return parentType === 'SERIALIZED';
-      }
-      return false;
-    });
+          // Usurper Protection: If current node is TV, only yield to TV
+          if (['TV', 'TV_SHORT'].includes(item.format || '')) {
+            if (!['TV', 'TV_SHORT'].includes(edge.node?.format || '')) {
+              return false;
+            }
+          }
+
+          const parentType = resolveAniListType(edge.node?.format || '', edge.node?.episodes, edge.node?.duration);
+          return parentType === 'SERIALIZED';
+        }
+        return false;
+      });
+    }
     
     if (hasSerializedParentOrPrequel && structuralType !== 'FEATURE') {
       continue;

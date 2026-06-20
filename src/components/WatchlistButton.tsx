@@ -25,16 +25,24 @@ export default function WatchlistButton({
 
     if (status) {
       const res = await fetch(`/api/watchlist?mediaId=${encodeURIComponent(mediaId)}`, { method: "DELETE" });
-      if (res.ok) setStatus(null);
-      else alert("You must be logged in to track media.");
+      if (res.ok) {
+        setStatus(null);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || "Failed to remove from list.");
+      }
     } else {
       const res = await fetch("/api/watchlist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mediaId, title, image, type, status: "plan_to_watch" }),
       });
-      if (res.ok) setStatus("plan_to_watch");
-      else alert("You must be logged in to track media.");
+      if (res.ok) {
+        setStatus("plan_to_watch");
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || "Failed to add to list.");
+      }
     }
     
     setIsUpdating(false);

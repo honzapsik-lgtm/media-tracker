@@ -297,61 +297,96 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
 
   let timelineItems: any[] = [];
   let spinoffItems: any[] = [];
-  const isSyncing = mediaTypeKey !== 'manga' && franchiseRoot && franchiseRoot.anilistId && !franchiseRoot.franchiseSyncedAt;
+  const isSyncing = !!(franchiseRoot && franchiseRoot.anilistId && !franchiseRoot.franchiseSyncedAt);
   const isCanonMovie = !!localDbMedia?.relatedMediaId && mediaTypeKey === "movie";
   
   if (franchiseRoot) {
-    const rawSeasons = franchiseRoot.seasons || [];
-    const rawCanonMovies = franchiseRoot.inverseRelated?.filter((m: any) => m.isMainStoryline === true && m.type === 'MOVIE') || [];
-    
-    // For timeline parsing, we want the title of the franchise root
-    const timelineRootTitle = franchiseRoot.title || mediaDetails.title;
-    
-    timelineItems = [
-      {
-        id: franchiseRoot.id,
-        title: timelineRootTitle,
-        episode_count: getKnownEpisodeCount(rawData, franchiseRoot.episodeData),
-        _sortTime: franchiseRoot.releaseDate ? new Date(franchiseRoot.releaseDate).getTime() : 0,
-        link: `/media/${franchiseRoot.id}/season/${franchiseRoot.anilistId}`,
-        isMovie: false,
-        statId: `${franchiseRoot.id}-s${franchiseRoot.anilistId}`,
-      },
-      ...rawSeasons.map((s: any, idx: number) => {
-        let nodeTitle = `Season ${idx + 2}`;
-        let nodeEpisodes: number | string = 'Unknown';
+    if (mediaTypeKey === 'manga') {
+      const mangaNodes: any[] = [];
+      if (franchiseRoot.type === 'MANGA') {
+        mangaNodes.push(franchiseRoot);
+      }
+      const relatedSpinoffs = franchiseRoot.inverseRelated?.filter((m: any) => m.type === 'MANGA') || [];
+      mangaNodes.push(...relatedSpinoffs);
+      
+      const otherMangaNodes = mangaNodes.filter((m: any) => m.id !== localDbMedia.id);
+      
+      spinoffItems = otherMangaNodes.map((m: any) => {
+        const directRelation = rawData?.relations?.edges?.find((edge: any) => edge.node.id === m.anilistId);
         
-        const fetchedNode = anilistSeasonNodes.find((n: any) => n.id === s.anilistId);
-        if (fetchedNode && (fetchedNode.title?.english || fetchedNode.title?.romaji)) {
-          nodeTitle = fetchedNode.title.english || fetchedNode.title.romaji;
-          nodeEpisodes = getKnownEpisodeCount(fetchedNode, s.episodeData);
-        } else if (Array.isArray(s.episodeData) && s.episodeData.length > 0) {
-          nodeEpisodes = s.episodeData.length;
+        let label = "Related";
+        if (directRelation) {
+          const relType = directRelation.relationType;
+          if (relType === 'PREQUEL') label = "Prequel";
+          else if (relType === 'SEQUEL') label = "Sequel";
+          else if (relType === 'SPIN_OFF') label = "Spin-off";
+          else if (relType === 'SIDE_STORY') label = "Side Story";
+          else if (relType === 'ALTERNATIVE') label = "Alternative";
+          else if (relType === 'SUMMARY') label = "Summary";
+          else if (relType === 'PARENT') label = "Parent";
+          else label = relType.replace('_', ' ').toLowerCase();
+        } else if (m.id === franchiseRoot.id) {
+          label = "Parent";
         }
-
+        
         return {
-          id: s.id,
-          title: nodeTitle,
-          episode_count: nodeEpisodes,
-          _sortTime: s.releaseDate ? new Date(s.releaseDate).getTime() : Infinity,
-          link: `/media/${franchiseRoot.id}/season/${s.anilistId || idx + 1}`,
-          isMovie: false,
-          statId: `${franchiseRoot.id}-s${s.anilistId || idx + 1}`,
+          ...m,
+          relationLabel: label
         };
-      }),
-      ...rawCanonMovies.map((m: any) => ({
-        id: m.id,
-        title: m.title || `Canon Movie`,
-        episode_count: 'Feature',
-        _sortTime: m.releaseDate ? new Date(m.releaseDate).getTime() : Infinity,
-        link: `/media/${m.id}`,
-        isMovie: true,
-        statId: m.id,
-      }))
-    ];
+      });
+    } else {
+      const rawSeasons = franchiseRoot.seasons || [];
+      const rawCanonMovies = franchiseRoot.inverseRelated?.filter((m: any) => m.isMainStoryline === true && m.type === 'MOVIE') || [];
+      
+      // For timeline parsing, we want the title of the franchise root
+      const timelineRootTitle = franchiseRoot.title || mediaDetails.title;
+      
+      timelineItems = [
+        {
+          id: franchiseRoot.id,
+          title: timelineRootTitle,
+          episode_count: getKnownEpisodeCount(rawData, franchiseRoot.episodeData),
+          _sortTime: franchiseRoot.releaseDate ? new Date(franchiseRoot.releaseDate).getTime() : 0,
+          link: `/media/${franchiseRoot.id}/season/${franchiseRoot.anilistId}`,
+          isMovie: false,
+          statId: `${franchiseRoot.id}-s${franchiseRoot.anilistId}`,
+        },
+        ...rawSeasons.map((s: any, idx: number) => {
+          let nodeTitle = `Season ${idx + 2}`;
+          let nodeEpisodes: number | string = 'Unknown';
+          
+          const fetchedNode = anilistSeasonNodes.find((n: any) => n.id === s.anilistId);
+          if (fetchedNode && (fetchedNode.title?.english || fetchedNode.title?.romaji)) {
+            nodeTitle = fetchedNode.title.english || fetchedNode.title.romaji;
+            nodeEpisodes = getKnownEpisodeCount(fetchedNode, s.episodeData);
+          } else if (Array.isArray(s.episodeData) && s.episodeData.length > 0) {
+            nodeEpisodes = s.episodeData.length;
+          }
 
-    timelineItems.sort((a, b) => a._sortTime - b._sortTime);
-    spinoffItems = franchiseRoot.inverseRelated?.filter((m: any) => m.isMainStoryline === false) || [];
+          return {
+            id: s.id,
+            title: nodeTitle,
+            episode_count: nodeEpisodes,
+            _sortTime: s.releaseDate ? new Date(s.releaseDate).getTime() : Infinity,
+            link: `/media/${franchiseRoot.id}/season/${s.anilistId || idx + 1}`,
+            isMovie: false,
+            statId: `${franchiseRoot.id}-s${s.anilistId || idx + 1}`,
+          };
+        }),
+        ...rawCanonMovies.map((m: any) => ({
+          id: m.id,
+          title: m.title || `Canon Movie`,
+          episode_count: 'Feature',
+          _sortTime: m.releaseDate ? new Date(m.releaseDate).getTime() : Infinity,
+          link: `/media/${m.id}`,
+          isMovie: true,
+          statId: m.id,
+        }))
+      ];
+
+      timelineItems.sort((a, b) => a._sortTime - b._sortTime);
+      spinoffItems = franchiseRoot.inverseRelated?.filter((m: any) => m.isMainStoryline === false) || [];
+    }
   } else if (mediaDetails.type === "show" && mediaDetails.seasons) {
     timelineItems = (mediaDetails.seasons as any[]).filter((s) => s.season_number > 0).map((s) => ({
       id: s.id.toString(),
@@ -459,7 +494,7 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
                 </span>
               )}
               
-              {isSyncing ? (
+              {isSyncing && mediaTypeKey !== "manga" ? (
                 <>
                   <span className="text-gray-600 hidden sm:inline">•</span>
                   <div className="flex gap-2">
@@ -579,7 +614,7 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
             )}
 
             {/* DYNAMIC CREW GRID */}
-            {isSyncing ? (
+            {isSyncing && mediaTypeKey !== "manga" ? (
               <div className="flex flex-wrap gap-x-10 gap-y-6 py-5 border-y border-gray-800/60 mb-6 mt-8">
                 {[1, 2, 3, 4].map(i => (
                   <div key={i} className="flex flex-col gap-2">
@@ -640,11 +675,18 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
             {!isCanonMovie && (
               <div className="mt-12 space-y-12">
                 {mediaTypeKey === 'manga' ? (
-                  mediaDetails.mangadexId ? (
-                    <MangaChapters mangadexId={mediaDetails.mangadexId} totalChapters={mediaDetails.chapters} />
-                  ) : (
-                    <MangaChaptersLoader mediaId={localDbMedia.id} />
-                  )
+                  <div className="mt-12">
+                    <h2 className="text-3xl font-bold mb-8">Chapters</h2>
+                    {mediaDetails.mangadexId ? (
+                      <MangaChapters mangadexId={mediaDetails.mangadexId} totalChapters={mediaDetails.chapters} />
+                    ) : isSyncing ? (
+                      <MangaChaptersLoader mediaId={localDbMedia.id} />
+                    ) : (
+                      <div className="text-center py-16 bg-gray-900/30 rounded-2xl border border-gray-800 border-dashed">
+                        <p className="text-gray-400">No English chapters found for this manga on MangaDex.</p>
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   (timelineItems.length > 0 || isSyncing) && (
                     <div>
@@ -676,18 +718,48 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
                   )
                 )}
 
-                  {!isSyncing && spinoffItems.length > 0 && (
-                    <div>
-                      <h2 className="text-2xl font-bold mb-6 text-gray-400">Related</h2>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        {spinoffItems.map((m: any) => (
-                          <Link key={m.id} href={`/media/${m.id}`} className="bg-gray-950 p-4 rounded-xl border border-gray-800 hover:border-gray-600 transition-colors block text-center">
-                            <p className="font-bold text-sm text-gray-300 line-clamp-2">{m.title || 'Unknown'}</p>
-                            <p className="text-xs text-gray-500 mt-2 uppercase font-black">{m.type}</p>
-                          </Link>
-                        ))}
+                  {mediaTypeKey === 'manga' ? (
+                    isSyncing ? (
+                      <div>
+                        <h2 className="text-2xl font-bold mb-6 text-gray-400">Related</h2>
+                        <SyncLoader 
+                          mediaId={localDbMedia.id}
+                          title="Syncing Related Media..."
+                          description="We are currently building the franchise tree for this manga to show all related prequels, sequels, and spin-offs. They will appear here automatically in just a moment!"
+                        />
                       </div>
-                    </div>
+                    ) : spinoffItems.length > 0 ? (
+                      <div>
+                        <h2 className="text-2xl font-bold mb-6 text-gray-400">Related</h2>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          {spinoffItems.map((m: any) => (
+                            <Link key={m.id} href={`/media/${m.id}`} className={`bg-gray-950 p-4 rounded-xl border border-gray-800 hover:border-gray-600 transition-colors block text-center relative pt-8`}>
+                              {m.relationLabel && (
+                                <div className="absolute top-2 left-2 bg-black/55 border border-gray-800/80 text-gray-400 px-1.5 py-0.5 rounded text-[9px] uppercase font-semibold">
+                                  {m.relationLabel}
+                                </div>
+                              )}
+                              <p className="font-bold text-sm text-gray-300 line-clamp-2">{m.title || 'Unknown'}</p>
+                              <p className="text-xs text-gray-500 mt-2 uppercase font-black">{m.type}</p>
+                            </Link>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null
+                  ) : (
+                    !isSyncing && spinoffItems.length > 0 && (
+                      <div>
+                        <h2 className="text-2xl font-bold mb-6 text-gray-400">Related</h2>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          {spinoffItems.map((m: any) => (
+                            <Link key={m.id} href={`/media/${m.id}`} className="bg-gray-950 p-4 rounded-xl border border-gray-800 hover:border-gray-600 transition-colors block text-center">
+                              <p className="font-bold text-sm text-gray-300 line-clamp-2">{m.title || 'Unknown'}</p>
+                              <p className="text-xs text-gray-500 mt-2 uppercase font-black">{m.type}</p>
+                            </Link>
+                          ))}
+                        </div>
+                      </div>
+                    )
                   )}
                 </div>
               )}
@@ -700,7 +772,7 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
             <div className="lg:col-span-2">
               <GameCharacterGrid characters={mediaDetails.characters || []} />
             </div>
-          ) : isSyncing ? (
+          ) : isSyncing && mediaTypeKey !== "manga" ? (
             <div className="lg:col-span-2">
               <h2 className="text-2xl font-bold mb-6 mt-2">Cast</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
