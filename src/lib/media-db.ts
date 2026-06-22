@@ -405,9 +405,15 @@ export async function updateUserStatsCache(userId: string, mediaType: MediaType,
   };
 
   watchlist.forEach(item => {
-    const status = item.status || 'plan_to_watch';
-    if (status_counts[status as keyof typeof status_counts] !== undefined) {
-      status_counts[status as keyof typeof status_counts]++;
+    const status = item.status;
+    if (status === 'COMPLETED') {
+      status_counts.completed++;
+    } else if (status === 'IN_PROGRESS') {
+      status_counts.watching++;
+    } else if (status === 'PLANNING') {
+      status_counts.plan_to_watch++;
+    } else if (status === 'DROPPED') {
+      status_counts.dropped++;
     }
   });
 

@@ -21,4 +21,8 @@ export interface UnifiedCompanyProfile {
     producedFilmTv: UnifiedCompanyMedia[];
     broadcastedOn: UnifiedCompanyMedia[];
   };
+  tmdbId?: number | null;
+  anilistId?: number | null;
+  igdbId?: number | null;
+  tmdbNetworkId?: number | null;
 }

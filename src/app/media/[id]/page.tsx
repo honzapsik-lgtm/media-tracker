@@ -1,6 +1,6 @@
 import ExpandableCast from "@/components/ExpandableCast";
 import { getTMDbDetails } from "@/lib/tmdb";
-import { getGameDetails, getGameCrew } from "@/lib/games";
+import { getGameDetails, getGameCrew, getRAWGGameDetails, resolveRAWGToIGDB } from "@/lib/games";
 
 import RatingSlider from "@/components/RatingSlider";
 import TextReviewEditor from "@/components/TextReviewEditor";
@@ -8,6 +8,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import ExpandableText from "@/components/ExpandableText";
 import WatchlistButton from "@/components/WatchlistButton";
+import WatchlistProgressTracker from "@/components/WatchlistProgressTracker";
 import SyncLoader from "@/components/SyncLoader";
 import ExpandableAniListCast from "@/components/ExpandableAniListCast";
 import { StaffGrid } from '@/components/StaffGrid';
@@ -119,8 +120,17 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
     const tmdbType = parts[1] as 'movie' | 'tv'; 
     const externalId = parts[2];
     mediaDetails = await getTMDbDetails(externalId, tmdbType);
-  } else if (provider === 'rawg' || provider === 'igdb') {
-    mediaDetails = await getGameDetails(parts[2]);
+  } else if (provider === 'igdb' || provider === 'rawg') {
+    if (provider === 'igdb') {
+      mediaDetails = await getGameDetails(parts[2]);
+    } else {
+      const rawgId = parseInt(parts[2], 10);
+      const resolvedIgdbId = await resolveRAWGToIGDB(rawgId);
+      if (resolvedIgdbId) {
+        redirect(`/media/igdb-game-${resolvedIgdbId}`);
+      }
+      mediaDetails = await getRAWGGameDetails(rawgId);
+    }
     if (mediaDetails) {
       let releaseYear: number | undefined;
       if (mediaDetails.releaseDate && mediaDetails.releaseDate !== 'N/A') {
@@ -480,6 +490,14 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
                 type={mediaDetails.type} 
               />
             </div>
+
+            <WatchlistProgressTracker 
+              mediaId={mediaDetails.id} 
+              mediaType={mediaDetails.type} 
+              totalEpisodes={totalEpisodes}
+              totalChapters={mediaDetails.chapters}
+              totalVolumes={mediaDetails.volumes}
+            />
 
             <WatchProviders watchData={localDbMedia?.watchData} />
             {(mediaDetails.type === 'movie' || mediaDetails.type === 'anime') && (

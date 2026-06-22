@@ -47,7 +47,11 @@ export async function getUnifiedCompanyProfile(slug: string): Promise<UnifiedCom
         country: dbCompany.country,
         description: dbCompany.description,
         logo: dbCompany.logoUrl,
-        portfolio: dbCompany.mergedWorks as unknown as UnifiedCompanyProfile['portfolio']
+        portfolio: dbCompany.mergedWorks as unknown as UnifiedCompanyProfile['portfolio'],
+        tmdbId: dbCompany.tmdbId,
+        anilistId: dbCompany.anilistId,
+        igdbId: dbCompany.igdbId,
+        tmdbNetworkId: dbCompany.tmdbNetworkId
       };
     }
   }
@@ -96,6 +100,10 @@ export async function getUnifiedCompanyProfile(slug: string): Promise<UnifiedCom
   }
 
   fetchedData.id = updatedDbCompany.id;
+  fetchedData.tmdbId = updatedDbCompany.tmdbId;
+  fetchedData.anilistId = updatedDbCompany.anilistId;
+  fetchedData.igdbId = updatedDbCompany.igdbId;
+  fetchedData.tmdbNetworkId = updatedDbCompany.tmdbNetworkId;
   return fetchedData;
 }
 
@@ -111,7 +119,7 @@ const emptyPortfolio = {
   broadcastedOn: []
 };
 
-async function fetchIGDBCompany(id: number): Promise<UnifiedCompanyProfile | null> {
+export async function fetchIGDBCompany(id: number): Promise<UnifiedCompanyProfile | null> {
   const token = await getIGDBToken();
   const clientId = process.env.TWITCH_CLIENT_ID;
   if (!token || !clientId) return null;
@@ -177,7 +185,7 @@ async function fetchIGDBCompany(id: number): Promise<UnifiedCompanyProfile | nul
   };
 }
 
-async function fetchAniListStudio(id: number): Promise<UnifiedCompanyProfile | null> {
+export async function fetchAniListStudio(id: number): Promise<UnifiedCompanyProfile | null> {
   const query = `
     query ($id: Int) {
       Studio(id: $id) {
@@ -228,7 +236,7 @@ async function fetchAniListStudio(id: number): Promise<UnifiedCompanyProfile | n
     const isManga = node.type === 'MANGA';
     
     const mediaObj: UnifiedCompanyMedia = {
-      mediaId: String(node.id),
+      mediaId: `anilist-${node.id}`,
       mediaType: isManga ? 'MANGA' : 'ANIME',
       title: node.title?.english || node.title?.romaji || 'Unknown',
       poster: node.coverImage?.large || null,
@@ -259,7 +267,7 @@ async function fetchAniListStudio(id: number): Promise<UnifiedCompanyProfile | n
   };
 }
 
-async function fetchTMDbCompany(id: number): Promise<UnifiedCompanyProfile | null> {
+export async function fetchTMDbCompany(id: number): Promise<UnifiedCompanyProfile | null> {
   if (!TMDB_API_KEY) return null;
 
   const [companyRes, moviesRes, tvRes] = await Promise.all([
@@ -299,7 +307,7 @@ async function fetchTMDbCompany(id: number): Promise<UnifiedCompanyProfile | nul
   };
 }
 
-async function fetchTMDbNetwork(id: number): Promise<UnifiedCompanyProfile | null> {
+export async function fetchTMDbNetwork(id: number): Promise<UnifiedCompanyProfile | null> {
   if (!TMDB_API_KEY) return null;
 
   const [networkRes, tvRes] = await Promise.all([

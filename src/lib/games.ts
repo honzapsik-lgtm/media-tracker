@@ -143,7 +143,7 @@ export async function getGameDetails(id: string) {
   const clientId = process.env.TWITCH_CLIENT_ID;
   if (!token || !clientId) throw new Error("Missing IGDB credentials");
 
-  const bodyQuery = `fields name, cover.image_id, summary, first_release_date, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, game_engines.name, platforms.name, websites.url; where id = ${numericId};`;
+  const bodyQuery = `fields name, cover.image_id, summary, first_release_date, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, game_engines.name, platforms.name, websites.url, videos.video_id; where id = ${numericId};`;
 
   const res = await timeProviderFetch({
     provider: "igdb",
@@ -174,6 +174,14 @@ export async function getGameDetails(id: string) {
   }
   
   const game = data[0];
+
+  let trailerUrl = null;
+  if (game.videos && game.videos.length > 0) {
+    const trailerVideo = game.videos.find((v: any) => v.name?.toLowerCase().includes('trailer')) || game.videos[0];
+    if (trailerVideo && trailerVideo.video_id) {
+      trailerUrl = `https://www.youtube.com/embed/${trailerVideo.video_id}`;
+    }
+  }
 
   const companies: GameCompany[] = [];
   if (game.involved_companies) {
@@ -265,7 +273,7 @@ export async function getGameDetails(id: string) {
     globalScore: 0,
     runtime: null,
     genres: [],
-    trailerUrl: null,
+    trailerUrl,
     cast: [],
     seasons: null,
     credits: [],
@@ -352,5 +360,145 @@ export async function getGameCrew(gameName: string, releaseYear?: number): Promi
     console.error("Error fetching RAWG crew:", error);
     return [];
   }
+}
+
+export async function getRAWGGameDetails(id: number) {
+  const cacheId = `rawg-game-${id}`;
+  const cached = await prisma.apiCache.findUnique({ where: { id: cacheId } });
+  if (cached && cached.data && JSON.stringify(cached.data) !== 'null' && cached.expires_at > new Date()) {
+    return cached.data as any;
+  }
+
+  const apiKey = process.env.RAWG_API_KEY;
+  if (!apiKey) throw new Error("Missing RAWG credentials");
+
+  const res = await timeProviderFetch({
+    provider: "rawg",
+    cacheId,
+    operation: "rawg.details",
+    fetcher: () => fetch(`https://api.rawg.io/api/games/${id}?key=${apiKey}`, { next: { revalidate: 3600 } }),
+  });
+
+  if (!res.ok) {
+    console.error("RAWG Fetch details failed. Status:", res.status);
+    return null;
+  }
+  const game = await res.json();
+  if (!game) return null;
+
+  const companies: GameCompany[] = [];
+  if (game.developers) {
+    game.developers.forEach((d: any) => {
+      companies.push({
+        id: `rawg-dev-${d.id}`,
+        name: d.name,
+        isDeveloper: true,
+        isPublisher: false
+      });
+    });
+  }
+  if (game.publishers) {
+    game.publishers.forEach((p: any) => {
+      companies.push({
+        id: `rawg-pub-${p.id}`,
+        name: p.name,
+        isDeveloper: false,
+        isPublisher: true
+      });
+    });
+  }
+
+  const playLinks: { site: string; url: string; color: string }[] = [];
+  if (game.stores) {
+    const storeColors: Record<string, string> = {
+      "steam": "#66c0f4",
+      "playstation-store": "#003087",
+      "xbox-store": "#107c10",
+      "gog": "#bf00ff",
+      "nintendo": "#e60012",
+      "epic-games": "#ffffff",
+      "app-store": "#007aff",
+      "google-play": "#00c6ff",
+    };
+    game.stores.forEach((s: any) => {
+      if (s.store) {
+        const slug = s.store.slug;
+        const color = storeColors[slug] || "#ffffff";
+        playLinks.push({
+          site: s.store.name,
+          url: s.url || `https://${s.store.domain || 'rawg.io'}`,
+          color
+        });
+      }
+    });
+  }
+
+  const genres = game.genres ? game.genres.map((g: any) => g.name) : [];
+
+  const result = {
+    id: cacheId,
+    title: game.name,
+    type: 'game',
+    image: game.background_image || null,
+    backdrop: game.background_image_additional || game.background_image || null,
+    description: game.description_raw || game.description || null,
+    releaseDate: game.released || 'N/A',
+    globalScore: game.metacritic || 0,
+    runtime: game.playtime || null,
+    genres,
+    trailerUrl: game.clip?.clip || null,
+    cast: [],
+    seasons: null,
+    credits: [],
+    companies,
+    characters: [],
+    engines: [],
+    playLinks
+  };
+
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 7);
+  await prisma.apiCache.upsert({
+    where: { id: cacheId },
+    update: { data: result as any, expires_at: expiresAt },
+    create: { id: cacheId, provider: 'rawg', data: result as any, expires_at: expiresAt }
+  });
+
+  return result;
+}
+
+export async function resolveRAWGToIGDB(rawgId: number): Promise<number | null> {
+  const cacheKey = `rawg-to-igdb-${rawgId}`;
+  const cached = await prisma.apiCache.findUnique({ where: { id: cacheKey } });
+  if (cached && cached.data) {
+    const val = typeof cached.data === 'string' ? JSON.parse(cached.data) : cached.data;
+    if (val && typeof val.igdbId === 'number') {
+      return val.igdbId;
+    }
+  }
+
+  // 1. Fetch RAWG game to get the title
+  const rawgGame = await getRAWGGameDetails(rawgId);
+  if (!rawgGame || !rawgGame.title) return null;
+
+  // 2. Search IGDB by name
+  const igdbGames = await searchGames(rawgGame.title);
+  if (igdbGames && igdbGames.length > 0) {
+    const match = igdbGames.find(g => g.title.toLowerCase() === rawgGame.title.toLowerCase()) || igdbGames[0];
+    const igdbId = parseInt(match.id.replace('igdb-game-', ''), 10);
+    
+    // Cache the mapping
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 30);
+    await prisma.apiCache.upsert({
+      where: { id: cacheKey },
+      update: { data: { igdbId } as any, expires_at: expiresAt },
+      create: { id: cacheKey, provider: 'rawg', data: { igdbId } as any, expires_at: expiresAt }
+    });
+    
+    return igdbId;
+  }
+
+  return null;
 }
 

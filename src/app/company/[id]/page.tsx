@@ -1,5 +1,6 @@
 import { getUnifiedCompanyProfile } from "@/lib/company";
-import { notFound } from "next/navigation";
+import { enqueueJob } from "@/lib/jobs";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import ExpandableText from "@/components/ExpandableText";
 import MediaCardVertical from "@/components/MediaCardVertical";
@@ -35,6 +36,31 @@ export default async function CompanyProfilePage({ params }: { params: Promise<{
   
   const profile = await getUnifiedCompanyProfile(companySlug);
   if (!profile) return notFound();
+
+  // Redirect to canonical slug if it differs
+  let canonicalSlug = companySlug;
+  if (profile.tmdbId) {
+    canonicalSlug = `tmdb-${profile.tmdbId}`;
+  } else if (profile.anilistId) {
+    canonicalSlug = `anilist-${profile.anilistId}`;
+  } else if (profile.igdbId) {
+    canonicalSlug = `igdb-${profile.igdbId}`;
+  } else if (profile.tmdbNetworkId) {
+    canonicalSlug = `tmdbnet-${profile.tmdbNetworkId}`;
+  }
+
+  if (companySlug !== canonicalSlug) {
+    redirect(`/company/${canonicalSlug}`);
+  }
+
+  // Non-blocking trigger of background sync
+  if (profile.id) {
+    enqueueJob({
+      type: "syncCompanyCrossPlatform",
+      payload: { companyId: profile.id },
+      dedupeKey: `sync-company-${profile.id}`
+    }).catch(e => console.error("Failed to enqueue syncCompanyCrossPlatform", e));
+  }
 
   return (
     <main className="min-h-screen bg-gray-950 text-white relative pb-24 selection:bg-blue-500/30">

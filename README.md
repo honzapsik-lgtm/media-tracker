@@ -86,9 +86,34 @@ A dedicated background algorithm aggregates these positions globally to generate
 - **Emotional Score Gaps:** The engine calculates the differential between the user's raw score and their list position to establish severity.
 - **Exponential Time Decay:** Older lists lose mathematical authority over time, preventing early review-bombing or nostalgia from permanently locking the global leaderboard.
 
-## Under Construction / Upcoming Features
+## 8. Creator Profiles & Credit Synchronization Engine
 
-- **Creator Profiles Syncing:** The `syncPersonCrossPlatform` background worker engine to query cross-platform APIs (TMDb, AniList, RAWG) and build out fully unified creator biographies is under active development.
+The application features a robust cross-platform synchronization engine for people and creators (voice actors, directors, game developers, etc.) under the `Person` model. This pipeline merges biographical data and credits from TMDb, AniList, IGDB, and RAWG.
+
+### 8.1 Identity Triangulation & Deduplication
+To link creator records together:
+1. **External ID Triangulation:** Fetches IMDb or Wikidata IDs from TMDb and matches them against external link arrays on IGDB.
+2. **Shared Credit Intersection:** Queries candidate profiles on target platforms and looks for overlapping titles in their credits list (e.g. matching a director on both TMDb and IGDB).
+3. **Normalized Birthdate Match:** Falls back to normalized name string matching combined with exact birthdate matching.
+
+### 8.2 Deep AniList Pagination & 429 Recovery
+Since AniList limits nested connections (like `characterMedia` and `staffMedia` on the `Staff` type) to 25 items per request, fetching all credits for prolific creators (like veteran voice actors with 400+ roles) requires aggressive pagination:
+- **Extended Page Cap:** The sync engine fetches up to 30 pages of 25 items (up to 750 credits total) to guarantee deep credit retrieval.
+- **Sleep Delay:** Adds a 50ms delay between page requests to minimize the chance of hitting API rate limits.
+- **429 Rate-Limit Recovery:** If the engine encounters a `429 Too Many Requests` error, it reads the `Retry-After` header, dynamically pauses execution for that duration, and retries the fetch (up to 3 times per page) rather than breaking the sync.
+
+### 8.3 Cross-Platform Deduplication (AniList Priority)
+Because Japanese voice actors' anime credits exist on both TMDb (where they often slip past anime filters due to incomplete genre/role metadata) and AniList, the merger contains custom cross-platform matching logic in `isSameMedia` and `deepMergeCredits`:
+- **Cross-Platform Match:** If a TMDb credit (`SHOW`/`MOVIE`) and an AniList credit (`ANIME`) have the same title and release year (within 1 year), they are matched regardless of differences in their voice actor flag (`isVoiceRole`).
+- **AniList Preference:** Upon a cross-platform match, the engine prioritizes AniList metadata. The merged credit is updated with AniList's ID, `ANIME` type, high-res poster, character images, and voice status (`isVoiceRole: true`), while discarding the TMDb show/movie metadata.
+
+### 8.4 Multiple Creator Roles Merging
+When merging credits for the same media, the merger does not discard secondary roles. Instead:
+- **Role Appending:** Character roles are split and uniquely appended (e.g. `"Suguru Getou"` and `"Kenjaku"` in *Jujutsu Kaisen Season 2* merge into `"Suguru Getou, Kenjaku"`).
+- **Voice Role Separation:** Merging only occurs if both credits share the same `isVoiceRole` status (except for the cross-platform TMDb-to-AniList anime override), keeping voice roles and live-action/crew roles separate.
+
+### 8.5 RAWG Batched Role Resolution
+For game developers imported from RAWG, creator roles are resolved asynchronously. The queue resolves exact positions (e.g. Programmer, Game Designer) by querying the RAWG development team endpoint in batches of 5 requests with catch blocks to prevent API failures from blocking the pipeline.
 
 ---
 

@@ -15,6 +15,8 @@ export type UnifiedProfile = {
   anilistId: number | null;
   igdbId: number | null;
   malId: number | null;
+  rawgId: number | null;
+  rawgSlug?: string;
   name: string;
   nativeName: string | null;
   bio: string | null;

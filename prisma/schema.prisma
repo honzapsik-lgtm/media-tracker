@@ -158,22 +158,59 @@ model UserRating {
   @@map("user_ratings")
 }
 
+enum WatchlistStatus {
+  PLANNING
+  IN_PROGRESS
+  COMPLETED
+  ON_HOLD
+  DROPPED
+}
+
 model UserWatchlist {
-  id              String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id         String?    @db.Uuid
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id         String?         @db.Uuid
   media_id        String
   media_title     String?
   media_image     String?
   media_type      MediaType?
-  status          String?    @default("plan_to_watch")
-  added_at        DateTime?  @default(now()) @db.Timestamptz(6)
-  episodesWatched Int        @default(0)
-  chaptersRead    Int        @default(0)
-  volumesRead     Int        @default(0)
-  user            User?      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  status          WatchlistStatus @default(PLANNING)
+  added_at        DateTime?       @default(now()) @db.Timestamptz(6)
+  started_at      DateTime?       @db.Timestamptz(6)
+  finished_at     DateTime?       @db.Timestamptz(6)
+  
+  // Shows / Anime
+  episodesWatched Int             @default(0)
+  is_rewatching   Boolean         @default(false)
+  
+  // Manga
+  chaptersRead    Int             @default(0)
+  volumesRead     Int             @default(0)
+  is_rereading    Boolean         @default(false)
+  
+  // Video Games
+  hoursPlayed     Float           @default(0.0)
+  platform        String?
+  
+  // Movies
+  watchCount      Int             @default(0)
+
+  user            User?           @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([user_id, media_id])
   @@map("user_watchlist")
+}
+
+model ActivityLog {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id     String   @db.Uuid
+  media_id    String
+  increment   String
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, created_at])
+  @@map("activity_log")
 }
 
 model User {
@@ -190,13 +227,14 @@ model User {
   role           String    @default("user")
 
   // Relations to the new NextAuth tables and your existing tables
-  accounts    Account[]
-  sessions    Session[]
-  ratings     UserRating[]
-  watchlist   UserWatchlist[]
-  badges      UserBadge[]
-  lists       UserList[]
-  stats_cache UserStatsCache[]
+  accounts      Account[]
+  sessions      Session[]
+  ratings       UserRating[]
+  watchlist     UserWatchlist[]
+  badges        UserBadge[]
+  lists         UserList[]
+  stats_cache   UserStatsCache[]
+  activity_logs ActivityLog[]
 
   @@map("users")
 }

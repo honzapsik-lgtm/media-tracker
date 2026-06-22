@@ -10,14 +10,24 @@ export default function WatchlistButton({
   const [status, setStatus] = useState<string | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
 
+  const fetchStatus = async () => {
+    const res = await fetch(`/api/watchlist?mediaId=${encodeURIComponent(mediaId)}`);
+    if (!res.ok) return;
+    const data = await res.json() as { status: string | null };
+    setStatus(data.status);
+  };
+
   useEffect(() => {
-    const fetchStatus = async () => {
-      const res = await fetch(`/api/watchlist?mediaId=${encodeURIComponent(mediaId)}`);
-      if (!res.ok) return;
-      const data = await res.json() as { status: string | null };
-      setStatus(data.status);
-    };
     fetchStatus();
+
+    const handleWatchlistUpdate = () => {
+      fetchStatus();
+    };
+
+    window.addEventListener("watchlist-updated", handleWatchlistUpdate);
+    return () => {
+      window.removeEventListener("watchlist-updated", handleWatchlistUpdate);
+    };
   }, [mediaId]);
 
   const toggleWatchlist = async () => {
@@ -27,6 +37,8 @@ export default function WatchlistButton({
       const res = await fetch(`/api/watchlist?mediaId=${encodeURIComponent(mediaId)}`, { method: "DELETE" });
       if (res.ok) {
         setStatus(null);
+        // Notify other components
+        window.dispatchEvent(new Event("watchlist-updated"));
       } else {
         const data = await res.json().catch(() => ({}));
         alert(data.error || "Failed to remove from list.");
@@ -35,10 +47,12 @@ export default function WatchlistButton({
       const res = await fetch("/api/watchlist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mediaId, title, image, type, status: "plan_to_watch" }),
+        body: JSON.stringify({ mediaId, title, image, type, status: "PLANNING" }),
       });
       if (res.ok) {
-        setStatus("plan_to_watch");
+        setStatus("PLANNING");
+        // Notify other components
+        window.dispatchEvent(new Event("watchlist-updated"));
       } else {
         const data = await res.json().catch(() => ({}));
         alert(data.error || "Failed to add to list.");

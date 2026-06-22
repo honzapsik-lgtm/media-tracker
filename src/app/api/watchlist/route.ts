@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { MediaType } from "@prisma/client";
+import { MediaType, WatchlistStatus } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { PERF_WARN_THRESHOLD_MS } from "@/lib/admin-constants";
 import { authOptions } from "@/lib/auth";
@@ -8,6 +8,8 @@ import { inferMediaType } from "@/lib/media-db";
 import { timeOperation } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { getOrCreateRequestId } from "@/lib/request-id";
+import { getTMDbDetails } from "@/lib/tmdb";
+import { getAnilistDetails } from "@/lib/anilist";
 
 type WatchlistBody = {
   mediaId?: string;
@@ -15,7 +17,275 @@ type WatchlistBody = {
   image?: string | null;
   type?: string;
   status?: string;
+
+  // New metric fields
+  episodesWatched?: number;
+  chaptersRead?: number;
+  volumesRead?: number;
+  hoursPlayed?: number;
+  platform?: string | null;
+  watchCount?: number;
 };
+
+function mapStatus(statusStr?: string): WatchlistStatus | undefined {
+  if (!statusStr) return undefined;
+  const s = statusStr.toUpperCase();
+  if (s === "PLAN_TO_WATCH" || s === "PLANNING") return "PLANNING";
+  if (s === "WATCHING" || s === "IN_PROGRESS") return "IN_PROGRESS";
+  if (s === "COMPLETED") return "COMPLETED";
+  if (s === "ON_HOLD") return "ON_HOLD";
+  if (s === "DROPPED") return "DROPPED";
+  return undefined;
+}
+
+async function getMediaSourceOfTruth(mediaId: string): Promise<{
+  episodes?: number;
+  chapters?: number;
+  volumes?: number;
+  type: MediaType;
+}> {
+  const parts = mediaId.split("-");
+  if (parts[0] === "tmdb") {
+    const type = parts[1] === "tv" ? "SHOW" : "MOVIE";
+    if (type === "SHOW") {
+      const details = await getTMDbDetails(parts[2], "tv");
+      const episodes = details?.seasons
+        ? (details.seasons as any[])
+            .filter((s: any) => s.season_number > 0)
+            .reduce((sum: number, s: any) => sum + (s.episode_count || 0), 0)
+        : 0;
+      return { episodes, type: "SHOW" };
+    } else {
+      return { type: "MOVIE" };
+    }
+  } else if (parts[0] === "rawg" || parts[0] === "igdb") {
+    return { type: "GAME" };
+  } else if (parts[0] === "manga") {
+    return { type: "MANGA" };
+  }
+
+  // CUID resolver
+  const media = await prisma.media.findUnique({
+    where: { id: mediaId },
+    include: { seasons: true }
+  });
+  if (!media) {
+    return { type: "OTHER" };
+  }
+
+  if (media.type === "SHOW") {
+    if (media.anilistId) {
+      const rawData = await getAnilistDetails(media.anilistId);
+      if (rawData?.episodes) {
+        return { episodes: rawData.episodes, type: "SHOW" };
+      }
+    }
+    if (media.tmdbId) {
+      const details = await getTMDbDetails(String(media.tmdbId), "tv");
+      const episodes = details?.seasons
+        ? (details.seasons as any[])
+            .filter((s: any) => s.season_number > 0)
+            .reduce((sum: number, s: any) => sum + (s.episode_count || 0), 0)
+        : 0;
+      return { episodes, type: "SHOW" };
+    }
+    if (media.seasons && media.seasons.length > 0) {
+      let episodes = 0;
+      for (const s of media.seasons) {
+        if (Array.isArray(s.episodeData)) {
+          episodes += s.episodeData.length;
+        }
+      }
+      if (episodes > 0) return { episodes, type: "SHOW" };
+    }
+    return { episodes: 0, type: "SHOW" };
+  } else if (media.type === "MANGA") {
+    if (media.anilistId) {
+      const rawData = await getAnilistDetails(media.anilistId);
+      return {
+        chapters: rawData?.chapters || undefined,
+        volumes: rawData?.volumes || undefined,
+        type: "MANGA"
+      };
+    }
+  }
+
+  return { type: media.type };
+}
+
+async function handleWatchlistMutation(
+  userId: string,
+  body: WatchlistBody,
+  action: "add_or_update" | "update"
+) {
+  const mediaId = body.mediaId as string;
+  const existing = await prisma.userWatchlist.findUnique({
+    where: { user_id_media_id: { user_id: userId, media_id: mediaId } }
+  });
+
+  if (action === "update" && !existing) {
+    throw new Error("Watchlist item not found");
+  }
+
+  const rawType = body.type;
+  const inferredType = (typeof rawType === "string" ? rawType.toUpperCase() as MediaType : null) || inferMediaType(mediaId);
+
+  // Status mapping
+  const mappedStatus = mapStatus(body.status);
+
+  let status = mappedStatus ?? existing?.status ?? "PLANNING";
+  let episodesWatched = body.episodesWatched !== undefined ? body.episodesWatched : (existing?.episodesWatched ?? 0);
+  let chaptersRead = body.chaptersRead !== undefined ? body.chaptersRead : (existing?.chaptersRead ?? 0);
+  let volumesRead = body.volumesRead !== undefined ? body.volumesRead : (existing?.volumesRead ?? 0);
+  let hoursPlayed = body.hoursPlayed !== undefined ? body.hoursPlayed : (existing?.hoursPlayed ?? 0.0);
+  let platform = body.platform !== undefined ? body.platform : (existing?.platform ?? null);
+  let watchCount = body.watchCount !== undefined ? body.watchCount : (existing?.watchCount ?? 0);
+  let is_rewatching = existing?.is_rewatching ?? false;
+  let is_rereading = existing?.is_rereading ?? false;
+  let started_at = existing?.started_at ?? null;
+  let finished_at = existing?.finished_at ?? null;
+
+  // 1. Mutation Interception & Activity Logging
+  let incrementText: string | null = null;
+  if (episodesWatched > (existing?.episodesWatched ?? 0)) {
+    incrementText = `Episode ${episodesWatched}`;
+  } else if (chaptersRead > (existing?.chaptersRead ?? 0)) {
+    incrementText = `Chapter ${chaptersRead}`;
+  } else if (volumesRead > (existing?.volumesRead ?? 0)) {
+    incrementText = `Volume ${volumesRead}`;
+  } else if (hoursPlayed > (existing?.hoursPlayed ?? 0.0)) {
+    incrementText = `${hoursPlayed} hours`;
+  } else if (watchCount > (existing?.watchCount ?? 0)) {
+    incrementText = `Watch ${watchCount}`;
+  }
+
+  if (incrementText) {
+    await prisma.activityLog.create({
+      data: {
+        user_id: userId,
+        media_id: mediaId,
+        increment: incrementText,
+      }
+    });
+  }
+
+  // 2. Threshold Evaluation & Auto-Completion
+  const meta = await getMediaSourceOfTruth(mediaId);
+  const mediaType = meta.type || inferredType;
+
+  if (mediaType === "SHOW" && meta.episodes && meta.episodes > 0) {
+    if (episodesWatched >= meta.episodes) {
+      status = "COMPLETED";
+    }
+  } else if (mediaType === "MANGA") {
+    if (meta.chapters && meta.chapters > 0 && chaptersRead >= meta.chapters) {
+      status = "COMPLETED";
+    } else if (meta.volumes && meta.volumes > 0 && volumesRead >= meta.volumes) {
+      status = "COMPLETED";
+    }
+  } else if (mediaType === "MOVIE") {
+    if (watchCount >= 1) {
+      status = "COMPLETED";
+    }
+  }
+
+  // Auto-start when progress shifts from 0
+  if (status === "PLANNING" && (episodesWatched > 0 || chaptersRead > 0 || volumesRead > 0 || hoursPlayed > 0 || watchCount > 0)) {
+    status = "IN_PROGRESS";
+  }
+
+  // 3. Status Shift Side Effects
+  if (status === "IN_PROGRESS" && existing?.status !== "IN_PROGRESS") {
+    started_at = new Date();
+  }
+  if (status === "COMPLETED" && existing?.status !== "COMPLETED") {
+    finished_at = new Date();
+  }
+
+  // 4. Looping Logic
+  if (existing?.status === "COMPLETED") {
+    const progressIncremented = 
+      (episodesWatched > existing.episodesWatched) ||
+      (chaptersRead > existing.chaptersRead) ||
+      (volumesRead > existing.volumesRead) ||
+      (hoursPlayed > existing.hoursPlayed) ||
+      (watchCount > existing.watchCount);
+    
+    const statusBackToInProgress = (status === "IN_PROGRESS");
+
+    if (progressIncremented || statusBackToInProgress) {
+      if (mediaType === "SHOW" || mediaType === "MOVIE") {
+        is_rewatching = true;
+      } else if (mediaType === "MANGA") {
+        is_rereading = true;
+      }
+
+      if (progressIncremented) {
+        status = "IN_PROGRESS";
+        started_at = new Date();
+        finished_at = null;
+      }
+    }
+  }
+
+  // Upsert or Update
+  if (action === "add_or_update") {
+    return prisma.userWatchlist.upsert({
+      where: { user_id_media_id: { user_id: userId, media_id: mediaId } },
+      update: {
+        media_title: body.title,
+        media_image: body.image ?? null,
+        media_type: mediaType,
+        status,
+        episodesWatched,
+        chaptersRead,
+        volumesRead,
+        hoursPlayed,
+        platform,
+        watchCount,
+        is_rewatching,
+        is_rereading,
+        started_at,
+        finished_at,
+      },
+      create: {
+        user_id: userId,
+        media_id: mediaId,
+        media_title: body.title,
+        media_image: body.image ?? null,
+        media_type: mediaType,
+        status,
+        episodesWatched,
+        chaptersRead,
+        volumesRead,
+        hoursPlayed,
+        platform,
+        watchCount,
+        is_rewatching,
+        is_rereading,
+        started_at,
+        finished_at,
+      }
+    });
+  } else {
+    return prisma.userWatchlist.update({
+      where: { user_id_media_id: { user_id: userId, media_id: mediaId } },
+      data: {
+        status,
+        episodesWatched,
+        chaptersRead,
+        volumesRead,
+        hoursPlayed,
+        platform,
+        watchCount,
+        is_rewatching,
+        is_rereading,
+        started_at,
+        finished_at,
+      }
+    });
+  }
+}
 
 async function queueUserStatsUpdate(
   userId: string,
@@ -45,9 +315,8 @@ export async function GET(request: Request) {
   if (mediaId) {
     const item = await prisma.userWatchlist.findUnique({
       where: { user_id_media_id: { user_id: session.user.id, media_id: mediaId } },
-      select: { status: true },
     });
-    return NextResponse.json({ status: item?.status ?? null });
+    return NextResponse.json(item ?? { status: null });
   }
 
   const page = parseInt(searchParams.get("page") || "1", 10);
@@ -82,27 +351,10 @@ export async function POST(request: Request) {
     metadata: {
       source: "watchlist.POST",
       action: "add_or_update",
-      status: body.status ?? "plan_to_watch",
+      status: body.status ?? "PLANNING",
     },
   }, async () => {
-    const item = await prisma.userWatchlist.upsert({
-      where: { user_id_media_id: { user_id: session.user.id, media_id: body.mediaId as string } },
-      update: {
-        media_title: body.title,
-        media_image: body.image ?? null,
-        media_type: mediaType,
-        status: body.status ?? "plan_to_watch",
-      },
-      create: {
-        user_id: session.user.id,
-        media_id: body.mediaId as string,
-        media_title: body.title,
-        media_image: body.image ?? null,
-        media_type: mediaType,
-        status: body.status ?? "plan_to_watch",
-      },
-    });
-
+    const item = await handleWatchlistMutation(session.user.id, body, "add_or_update");
     await queueUserStatsUpdate(session.user.id, body.mediaId as string, requestId, mediaType);
     return item;
   });
@@ -118,8 +370,8 @@ export async function PATCH(request: Request) {
   }
 
   const body = (await request.json()) as WatchlistBody;
-  if (!body.mediaId || !body.status) {
-    return NextResponse.json({ error: "mediaId and status are required" }, { status: 400 });
+  if (!body.mediaId) {
+    return NextResponse.json({ error: "mediaId is required" }, { status: 400 });
   }
 
   const rawType = body.type;
@@ -134,12 +386,11 @@ export async function PATCH(request: Request) {
     metadata: {
       source: "watchlist.PATCH",
       action: "update",
-      status: body.status,
     },
-  }, async () => prisma.userWatchlist.update({
-    where: { user_id_media_id: { user_id: session.user.id, media_id: body.mediaId as string } },
-    data: { status: body.status },
-  }));
+  }, async () => {
+    const item = await handleWatchlistMutation(session.user.id, body, "update");
+    return item;
+  });
 
   await queueUserStatsUpdate(session.user.id, item.media_id, requestId, item.media_type);
 
@@ -187,4 +438,3 @@ export async function DELETE(request: Request) {
 
   return NextResponse.json({ ok: true });
 }
-

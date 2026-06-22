@@ -1,11 +1,13 @@
 import { getUnifiedPersonProfile } from "@/lib/person";
 import { enqueueJob } from "@/lib/jobs";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import ExpandableText from "@/components/ExpandableText";
 import MediaCardVertical from "@/components/MediaCardVertical";
+import Carousel from "@/components/Carousel";
 import { getMediaStatsMap, getListRankMap } from "@/lib/media-db";
 import { UnifiedCredit } from "@/types/person";
+import PersonCredits from "@/components/PersonCredits";
 
 export default async function PersonProfilePage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = await params;
@@ -13,6 +15,22 @@ export default async function PersonProfilePage({ params }: { params: Promise<{ 
   
   const profile = await getUnifiedPersonProfile(personSlug);
   if (!profile) return notFound();
+
+  // Redirect to canonical slug if it differs
+  let canonicalSlug = personSlug;
+  if (profile.tmdbId) {
+    canonicalSlug = `tmdb-${profile.tmdbId}`;
+  } else if (profile.anilistId) {
+    canonicalSlug = `anilist-${profile.anilistId}`;
+  } else if (profile.igdbId) {
+    canonicalSlug = `igdb-${profile.igdbId}`;
+  } else if (profile.rawgId) {
+    canonicalSlug = `rawg-${profile.rawgId}`;
+  }
+
+  if (personSlug !== canonicalSlug) {
+    redirect(`/person/${canonicalSlug}`);
+  }
 
   // Non-blocking trigger of background sync
   if (profile.id) {
@@ -54,20 +72,7 @@ export default async function PersonProfilePage({ params }: { params: Promise<{ 
 
   const topKnownFor = creditsWithStats.slice(0, 6);
 
-  // Unified Credits Timeline grouped by decade/year
-  const groupCredits = (credits: UnifiedCredit[]) => {
-    const sorted = [...credits].sort((a, b) => (b.releaseYear || 0) - (a.releaseYear || 0));
-    const grouped = sorted.reduce((acc, c) => {
-      const year = c.releaseYear || "Upcoming";
-      if (!acc[year]) acc[year] = [];
-      acc[year].push(c);
-      return acc;
-    }, {} as Record<string, UnifiedCredit[]>);
-    return grouped;
-  };
-
-  const castGroups = groupCredits(profile.credits.cast);
-  const crewGroups = groupCredits(profile.credits.crew);
+  // Credits are grouped and sorted in the client component
 
   const calculateAge = (birth?: string | null, death?: string | null) => {
     if (!birth) return null;
@@ -154,7 +159,7 @@ export default async function PersonProfilePage({ params }: { params: Promise<{ 
               <div className="h-px flex-1 bg-gradient-to-r from-gray-800 to-transparent"></div>
             </div>
             
-            <div className="flex overflow-x-auto pb-8 -mx-6 px-6 sm:mx-0 sm:px-0 gap-6 snap-x hide-scrollbar">
+            <Carousel>
               {topKnownFor.map((credit, idx) => (
                 <div key={`${credit.mediaId}-${idx}`} className="w-40 sm:w-48 lg:w-56 shrink-0 snap-start">
                   <MediaCardVertical item={{
@@ -168,94 +173,12 @@ export default async function PersonProfilePage({ params }: { params: Promise<{ 
                   }} />
                 </div>
               ))}
-            </div>
+            </Carousel>
           </section>
         )}
 
         {/* Unified Credits Timeline */}
-        <section>
-          <div className="flex items-center gap-4 mb-10">
-            <h2 className="text-3xl font-black text-white">Filmography & Credits</h2>
-            <div className="h-px flex-1 bg-gradient-to-r from-gray-800 to-transparent"></div>
-          </div>
-
-          <div className="grid lg:grid-cols-2 gap-16">
-            {/* CAST */}
-            {profile.credits.cast.length > 0 && (
-              <div>
-                <h3 className="text-2xl font-bold mb-8 flex items-center gap-3">
-                  <span className="bg-blue-500/10 text-blue-400 px-4 py-1.5 rounded-full text-sm tracking-widest uppercase border border-blue-500/20">Cast</span>
-                  <span className="text-gray-500 text-base">{profile.credits.cast.length} Roles</span>
-                </h3>
-                
-                <div className="space-y-12 border-l-2 border-gray-900 ml-4 pl-8">
-                  {Object.entries(castGroups).sort(([a], [b]) => (b === "Upcoming" ? -1 : a === "Upcoming" ? 1 : Number(b) - Number(a))).map(([year, credits]) => (
-                    <div key={`cast-${year}`} className="relative">
-                      <div className="absolute -left-[45px] top-1 bg-gray-950 text-gray-500 font-bold text-sm px-2 py-1">{year}</div>
-                      <div className="space-y-6">
-                        {credits.map((c, i) => (
-                          <div key={i} className="group bg-gray-900/40 hover:bg-gray-800/60 p-4 rounded-xl border border-gray-800/50 hover:border-gray-700 transition-colors flex items-center gap-5">
-                            {c.isVoiceRole && c.characterImage ? (
-                              <img src={c.characterImage} alt={c.role} className="w-14 h-14 rounded-full object-cover border-2 border-gray-700 shrink-0" />
-                            ) : (
-                              <div className="w-14 h-14 rounded-full bg-gray-800 border-2 border-gray-700 shrink-0 flex items-center justify-center text-gray-500 text-xs font-bold">
-                                {c.mediaType.slice(0, 2)}
-                              </div>
-                            )}
-                            
-                            <div className="flex-1 min-w-0">
-                              <h4 className="font-bold text-lg text-gray-200 truncate group-hover:text-white">{c.title}</h4>
-                              <div className="flex items-center gap-2 mt-1">
-                                {c.isVoiceRole && <span className="text-[10px] font-black uppercase bg-purple-500/10 text-purple-400 border border-purple-500/20 px-2 py-0.5 rounded">Voice</span>}
-                                <span className="text-sm text-gray-400 truncate">{c.role}</span>
-                              </div>
-                            </div>
-                            
-                            <span className="text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded bg-gray-950 text-gray-500 border border-gray-800 shrink-0">
-                              {c.mediaType}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* CREW */}
-            {profile.credits.crew.length > 0 && (
-              <div>
-                <h3 className="text-2xl font-bold mb-8 flex items-center gap-3">
-                  <span className="bg-emerald-500/10 text-emerald-400 px-4 py-1.5 rounded-full text-sm tracking-widest uppercase border border-emerald-500/20">Crew</span>
-                  <span className="text-gray-500 text-base">{profile.credits.crew.length} Credits</span>
-                </h3>
-                
-                <div className="space-y-12 border-l-2 border-gray-900 ml-4 pl-8">
-                  {Object.entries(crewGroups).sort(([a], [b]) => (b === "Upcoming" ? -1 : a === "Upcoming" ? 1 : Number(b) - Number(a))).map(([year, credits]) => (
-                    <div key={`crew-${year}`} className="relative">
-                      <div className="absolute -left-[45px] top-1 bg-gray-950 text-gray-500 font-bold text-sm px-2 py-1">{year}</div>
-                      <div className="space-y-6">
-                        {credits.map((c, i) => (
-                          <div key={i} className="group bg-gray-900/40 hover:bg-gray-800/60 p-4 rounded-xl border border-gray-800/50 hover:border-gray-700 transition-colors flex items-center gap-5">
-                            <div className="flex-1 min-w-0">
-                              <h4 className="font-bold text-lg text-gray-200 truncate group-hover:text-white">{c.title}</h4>
-                              <p className="text-sm text-gray-400 mt-1 truncate">{c.role}</p>
-                            </div>
-                            
-                            <span className="text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded bg-gray-950 text-gray-500 border border-gray-800 shrink-0">
-                              {c.mediaType}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </section>
+        <PersonCredits initialCredits={profile.credits} personSlug={canonicalSlug} />
 
       </div>
     </main>

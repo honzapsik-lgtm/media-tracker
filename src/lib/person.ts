@@ -7,7 +7,7 @@ import { getIGDBToken } from '@/lib/games';
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
 
 export function parsePersonSlug(slug: string): [string, number] | null {
-  const providerMatch = slug.match(/^(tmdb|anilist|igdb|mal)(?:-[a-z]+)?-(\d+)$/i);
+  const providerMatch = slug.match(/^(tmdb|anilist|igdb|mal|rawg)(?:-[a-z]+)?-(\d+)$/i);
   if (providerMatch) {
     return [providerMatch[1].toLowerCase(), parseInt(providerMatch[2], 10)];
   }
@@ -26,8 +26,9 @@ export async function getUnifiedPersonProfile(slug: string): Promise<UnifiedProf
   let tmdbId: number | null = provider === 'tmdb' ? numericId : null;
   let anilistId: number | null = provider === 'anilist' ? numericId : null;
   let igdbId: number | null = provider === 'igdb' ? numericId : null;
+  let rawgId: number | null = provider === 'rawg' ? numericId : null;
 
-  if (!tmdbId && !anilistId && !igdbId) return null;
+  if (!tmdbId && !anilistId && !igdbId && !rawgId) return null;
 
   // 1. Check DB first
   const dbPerson = await prisma.person.findFirst({
@@ -36,6 +37,7 @@ export async function getUnifiedPersonProfile(slug: string): Promise<UnifiedProf
         ...(tmdbId ? [{ tmdbId }] : []),
         ...(anilistId ? [{ anilistId }] : []),
         ...(igdbId ? [{ igdbId }] : []),
+        ...(rawgId ? [{ rawgId }] : []),
       ]
     }
   });
@@ -49,6 +51,7 @@ export async function getUnifiedPersonProfile(slug: string): Promise<UnifiedProf
         anilistId: dbPerson.anilistId,
         igdbId: dbPerson.igdbId,
         malId: dbPerson.malId,
+        rawgId: dbPerson.rawgId,
         name: dbPerson.name,
         nativeName: dbPerson.nativeName,
         bio: dbPerson.biography,
@@ -69,6 +72,8 @@ export async function getUnifiedPersonProfile(slug: string): Promise<UnifiedProf
     fetchedData = await fetchAniListPerson(anilistId);
   } else if (igdbId) {
     fetchedData = await fetchIGDBPerson(igdbId);
+  } else if (rawgId) {
+    fetchedData = await fetchRAWGPerson(rawgId);
   }
 
   if (!fetchedData) return null;
@@ -87,6 +92,7 @@ export async function getUnifiedPersonProfile(slug: string): Promise<UnifiedProf
         deathDate: fetchedData.deathDate,
         knownForDepartment: fetchedData.knownForDepartment,
         mergedCredits: fetchedData.credits as any,
+        rawgId: fetchedData.rawgId ?? dbPerson.rawgId,
       }
     });
   } else {
@@ -96,6 +102,7 @@ export async function getUnifiedPersonProfile(slug: string): Promise<UnifiedProf
         anilistId: fetchedData.anilistId,
         igdbId: fetchedData.igdbId,
         malId: fetchedData.malId,
+        rawgId: fetchedData.rawgId,
         name: fetchedData.name,
         nativeName: fetchedData.nativeName,
         biography: fetchedData.bio,
@@ -114,7 +121,7 @@ export async function getUnifiedPersonProfile(slug: string): Promise<UnifiedProf
 
 // --- Platform Fetchers ---
 
-async function fetchTMDbPerson(id: number): Promise<UnifiedProfile | null> {
+export async function fetchTMDbPerson(id: number): Promise<UnifiedProfile | null> {
   if (!TMDB_API_KEY) return null;
   const res = await timeProviderFetch({
     provider: 'tmdb',
@@ -143,6 +150,16 @@ async function fetchTMDbPerson(id: number): Promise<UnifiedProfile | null> {
 
   for (const item of rawCast) {
     if (item.media_type !== 'movie' && item.media_type !== 'tv') continue;
+    
+    // Filter out Japanese Anime to avoid duplicates with AniList
+    const genres = item.genre_ids || [];
+    const lang = item.original_language;
+    const isVoice = item.character && item.character.toLowerCase().includes('(voice)');
+    const isJP = lang === 'ja' || (item.origin_country && item.origin_country.includes('JP'));
+    
+    const isJapaneseAnime = (genres.some((g: any) => Number(g) === 16) && isJP) || (isVoice && isJP);
+    if (isJapaneseAnime) continue;
+
     const mediaId = `tmdb-${item.media_type}-${item.id}`;
     if (seenCast.has(mediaId)) continue;
     seenCast.add(mediaId);
@@ -161,6 +178,15 @@ async function fetchTMDbPerson(id: number): Promise<UnifiedProfile | null> {
 
   for (const item of rawCrew) {
     if (item.media_type !== 'movie' && item.media_type !== 'tv') continue;
+
+    // Filter out Japanese Anime to avoid duplicates with AniList
+    const genres = item.genre_ids || [];
+    const lang = item.original_language;
+    const isJP = lang === 'ja' || (item.origin_country && item.origin_country.includes('JP'));
+    
+    const isJapaneseAnime = genres.some((g: any) => Number(g) === 16) && isJP;
+    if (isJapaneseAnime) continue;
+
     const mediaId = `tmdb-${item.media_type}-${item.id}`;
     const key = `${mediaId}-${item.job}`;
     if (seenCrew.has(key)) continue;
@@ -184,6 +210,7 @@ async function fetchTMDbPerson(id: number): Promise<UnifiedProfile | null> {
     anilistId: null,
     igdbId: null,
     malId: null,
+    rawgId: null,
     name: data.name,
     nativeName: data.also_known_as && data.also_known_as.length > 0 ? data.also_known_as[0] : null,
     bio: data.biography || null,
@@ -198,7 +225,7 @@ async function fetchTMDbPerson(id: number): Promise<UnifiedProfile | null> {
   };
 }
 
-async function fetchAniListPerson(id: number): Promise<UnifiedProfile | null> {
+export async function fetchAniListPerson(id: number): Promise<UnifiedProfile | null> {
   const query = `
     query ($id: Int) {
       Staff(id: $id) {
@@ -222,7 +249,10 @@ async function fetchAniListPerson(id: number): Promise<UnifiedProfile | null> {
           day
         }
         primaryOccupations
-        characterMedia(sort: [POPULARITY_DESC]) {
+        characterMedia(page: 1, perPage: 50, sort: [POPULARITY_DESC]) {
+          pageInfo {
+            hasNextPage
+          }
           edges {
             characterRole
             characters {
@@ -239,7 +269,10 @@ async function fetchAniListPerson(id: number): Promise<UnifiedProfile | null> {
             }
           }
         }
-        staffMedia(sort: [POPULARITY_DESC]) {
+        staffMedia(page: 1, perPage: 50, sort: [POPULARITY_DESC]) {
+          pageInfo {
+            hasNextPage
+          }
           edges {
             staffRole
             node {
@@ -273,11 +306,157 @@ async function fetchAniListPerson(id: number): Promise<UnifiedProfile | null> {
   const data = json.data?.Staff;
   if (!data) return null;
 
+  const charEdges = [...(data.characterMedia?.edges || [])];
+  let hasNextCharPage = data.characterMedia?.pageInfo?.hasNextPage || false;
+  let charPage = 2;
+  const maxPages = 30;
+
+  while (hasNextCharPage && charPage <= maxPages) {
+    const charQuery = `
+      query ($id: Int, $page: Int) {
+        Staff(id: $id) {
+          characterMedia(page: $page, perPage: 50, sort: [POPULARITY_DESC]) {
+            pageInfo {
+              hasNextPage
+            }
+            edges {
+              characterRole
+              characters {
+                name { full }
+                image { large }
+              }
+              node {
+                id
+                type
+                format
+                title { english romaji }
+                coverImage { large }
+                startDate { year }
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    let pageRes;
+    let retries = 3;
+    while (retries > 0) {
+      pageRes = await timeProviderFetch({
+        provider: 'anilist',
+        cacheId: `anilist-person-${id}-charpage-${charPage}`,
+        operation: 'anilist.person.charpage',
+        fetcher: () => fetch("https://graphql.anilist.co", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Accept": "application/json" },
+          body: JSON.stringify({ query: charQuery, variables: { id, page: charPage } }),
+          next: { revalidate: 3600 }
+        })
+      });
+
+      if (pageRes.status === 429) {
+        const retryAfter = parseInt(pageRes.headers.get('Retry-After') || '5', 10);
+        console.warn(`[AniList Sync] Hit rate limit (429) on character page ${charPage}. Retrying after ${retryAfter}s...`);
+        await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
+        retries--;
+      } else {
+        break;
+      }
+    }
+
+    if (pageRes && pageRes.ok) {
+      const pageJson = await pageRes.json();
+      if (pageJson.errors) {
+        console.error(`[AniList Sync] Character page ${charPage} GraphQL errors:`, JSON.stringify(pageJson.errors, null, 2));
+        break;
+      }
+      const pageEdges = pageJson.data?.Staff?.characterMedia?.edges || [];
+      charEdges.push(...pageEdges);
+      hasNextCharPage = pageJson.data?.Staff?.characterMedia?.pageInfo?.hasNextPage || false;
+    } else {
+      const status = pageRes ? pageRes.status : 'unknown';
+      const statusText = pageRes ? pageRes.statusText : '';
+      console.error(`[AniList Sync] Character page ${charPage} failed with status: ${status} (${statusText})`);
+      break;
+    }
+    charPage++;
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+
+  const staffEdges = [...(data.staffMedia?.edges || [])];
+  let hasNextStaffPage = data.staffMedia?.pageInfo?.hasNextPage || false;
+  let staffPage = 2;
+
+  while (hasNextStaffPage && staffPage <= maxPages) {
+    const staffQuery = `
+      query ($id: Int, $page: Int) {
+        Staff(id: $id) {
+          staffMedia(page: $page, perPage: 50, sort: [POPULARITY_DESC]) {
+            pageInfo {
+              hasNextPage
+            }
+            edges {
+              staffRole
+              node {
+                id
+                type
+                format
+                title { english romaji }
+                coverImage { large }
+                startDate { year }
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    let pageRes;
+    let retries = 3;
+    while (retries > 0) {
+      pageRes = await timeProviderFetch({
+        provider: 'anilist',
+        cacheId: `anilist-person-${id}-staffpage-${staffPage}`,
+        operation: 'anilist.person.staffpage',
+        fetcher: () => fetch("https://graphql.anilist.co", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Accept": "application/json" },
+          body: JSON.stringify({ query: staffQuery, variables: { id, page: staffPage } }),
+          next: { revalidate: 3600 }
+        })
+      });
+
+      if (pageRes.status === 429) {
+        const retryAfter = parseInt(pageRes.headers.get('Retry-After') || '5', 10);
+        console.warn(`[AniList Sync] Hit rate limit (429) on staff page ${staffPage}. Retrying after ${retryAfter}s...`);
+        await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
+        retries--;
+      } else {
+        break;
+      }
+    }
+
+    if (pageRes && pageRes.ok) {
+      const pageJson = await pageRes.json();
+      if (pageJson.errors) {
+        console.error(`[AniList Sync] Staff page ${staffPage} GraphQL errors:`, JSON.stringify(pageJson.errors, null, 2));
+        break;
+      }
+      const pageEdges = pageJson.data?.Staff?.staffMedia?.edges || [];
+      staffEdges.push(...pageEdges);
+      hasNextStaffPage = pageJson.data?.Staff?.staffMedia?.pageInfo?.hasNextPage || false;
+    } else {
+      const status = pageRes ? pageRes.status : 'unknown';
+      const statusText = pageRes ? pageRes.statusText : '';
+      console.error(`[AniList Sync] Staff page ${staffPage} failed with status: ${status} (${statusText})`);
+      break;
+    }
+    staffPage++;
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+
   const cast: UnifiedCredit[] = [];
   const crew: UnifiedCredit[] = [];
-
-  const charEdges = data.characterMedia?.edges || [];
-  const staffEdges = data.staffMedia?.edges || [];
 
   for (const edge of charEdges) {
     const node = edge.node;
@@ -288,7 +467,7 @@ async function fetchAniListPerson(id: number): Promise<UnifiedProfile | null> {
     const char = edge.characters && edge.characters.length > 0 ? edge.characters[0] : null;
 
     cast.push({
-      mediaId: String(node.id),
+      mediaId: `anilist-${node.id}`,
       mediaType,
       title: node.title?.english || node.title?.romaji || 'Unknown',
       poster: node.coverImage?.large || null,
@@ -306,7 +485,7 @@ async function fetchAniListPerson(id: number): Promise<UnifiedProfile | null> {
     const mediaType = isManga ? 'MANGA' : 'ANIME';
 
     crew.push({
-      mediaId: String(node.id),
+      mediaId: `anilist-${node.id}`,
       mediaType,
       title: node.title?.english || node.title?.romaji || 'Unknown',
       poster: node.coverImage?.large || null,
@@ -329,6 +508,7 @@ async function fetchAniListPerson(id: number): Promise<UnifiedProfile | null> {
     anilistId: id,
     igdbId: null,
     malId: null,
+    rawgId: null,
     name: data.name?.full || 'Unknown',
     nativeName: data.name?.native || null,
     bio: data.description || null,
@@ -343,7 +523,7 @@ async function fetchAniListPerson(id: number): Promise<UnifiedProfile | null> {
   };
 }
 
-async function fetchIGDBPerson(id: number): Promise<UnifiedProfile | null> {
+export async function fetchIGDBPerson(id: number): Promise<UnifiedProfile | null> {
   const token = await getIGDBToken();
   const clientId = process.env.TWITCH_CLIENT_ID;
   if (!token || !clientId) return null;
@@ -393,11 +573,88 @@ async function fetchIGDBPerson(id: number): Promise<UnifiedProfile | null> {
     anilistId: null,
     igdbId: id,
     malId: null,
+    rawgId: null,
     name: p.name,
     nativeName: null,
     bio: p.description || null,
     profileImage: p.mug_shot?.image_id ? `https://images.igdb.com/igdb/image/upload/t_1080p/${p.mug_shot.image_id}.jpg` : null,
     birthDate: p.dob ? new Date(p.dob * 1000).toISOString().split('T')[0] : null,
+    deathDate: null,
+    knownForDepartment: 'Game Development',
+    credits: {
+      cast,
+      crew
+    }
+  };
+}
+
+export async function fetchRAWGPerson(id: number): Promise<UnifiedProfile | null> {
+  const apiKey = process.env.RAWG_API_KEY;
+  if (!apiKey) return null;
+
+  const res = await timeProviderFetch({
+    provider: 'rawg',
+    cacheId: `rawg-person-${id}`,
+    operation: 'rawg.person',
+    fetcher: () => fetch(`https://api.rawg.io/api/creators/${id}?key=${apiKey}`, { next: { revalidate: 3600 } })
+  });
+
+  if (!res.ok) return null;
+  const data = await res.json();
+  if (!data) return null;
+
+  const crew: UnifiedCredit[] = [];
+  const cast: UnifiedCredit[] = [];
+
+  const formatPositions = (positions: any[]): string => {
+    if (!positions || positions.length === 0) return 'Developer';
+    return positions.map(p => {
+      const name = p.name || '';
+      return name.charAt(0).toUpperCase() + name.slice(1);
+    }).join(', ');
+  };
+  const overallPositions = data.positions ? formatPositions(data.positions) : 'Developer';
+
+  if (data.slug) {
+    const gamesRes = await timeProviderFetch({
+      provider: 'rawg',
+      cacheId: `rawg-person-games-${data.slug}`,
+      operation: 'rawg.person_games',
+      fetcher: () => fetch(`https://api.rawg.io/api/games?key=${apiKey}&creators=${data.slug}&page_size=40`, { next: { revalidate: 3600 } })
+    });
+
+    if (gamesRes.ok) {
+      const gamesData = await gamesRes.json();
+      if (gamesData.results) {
+        for (const g of gamesData.results) {
+          crew.push({
+            mediaId: `rawg-game-${g.id}`,
+            mediaType: 'GAME',
+            title: g.name,
+            poster: g.background_image || null,
+            releaseYear: g.released ? parseInt(g.released.substring(0, 4), 10) : null,
+            role: `[RESOLVING_ROLE]:${overallPositions}`,
+            isVoiceRole: false,
+            characterImage: null
+          });
+        }
+      }
+    }
+  }
+
+  return {
+    id: `rawg-${id}`,
+    tmdbId: null,
+    anilistId: null,
+    igdbId: null,
+    malId: null,
+    rawgId: id,
+    rawgSlug: data.slug || null,
+    name: data.name,
+    nativeName: null,
+    bio: data.description || null,
+    profileImage: data.image || null,
+    birthDate: null,
     deathDate: null,
     knownForDepartment: 'Game Development',
     credits: {
