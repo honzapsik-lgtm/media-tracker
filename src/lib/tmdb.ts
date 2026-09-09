@@ -130,7 +130,10 @@ export async function getTMDbDetails(id: string, type: 'movie' | 'tv') {
   const cacheId = `tmdb-${type}-${id}`;
   const cached = await prisma.apiCache.findUnique({ where: { id: cacheId } });
   if (cached && cached.data && JSON.stringify(cached.data) !== 'null' && cached.expires_at > new Date()) {
-    return cached.data as any;
+    const cachedData = cached.data as any;
+    if (cachedData.originalLanguage !== undefined) {
+      return cachedData;
+    }
   }
 
   if (!TMDB_API_KEY) throw new Error("TMDb API Key is missing");
@@ -201,6 +204,8 @@ export async function getTMDbDetails(id: string, type: 'movie' | 'tv') {
   const result = {
     id: cacheId,
     title: data.title || data.name,
+    originalTitle: data.original_name || data.original_title || null,
+    originalLanguage: data.original_language || null,
     type: type === 'tv' ? 'show' : 'movie',
     image: data.poster_path ? `https://image.tmdb.org/t/p/w500${data.poster_path}` : null,
     backdrop: data.backdrop_path ? `https://image.tmdb.org/t/p/original${data.backdrop_path}` : null,

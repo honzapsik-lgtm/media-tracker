@@ -1,6 +1,6 @@
 export default function AnimeThemes({ themeData: rawThemeData }: { themeData: any }) {
   if (!rawThemeData) {
-    return <p className="text-gray-500 mt-4 text-xs font-bold">AnimeThemes Mounted: No themeData</p>;
+    return null;
   }
 
   let themeData = rawThemeData;
@@ -8,7 +8,7 @@ export default function AnimeThemes({ themeData: rawThemeData }: { themeData: an
     try {
       themeData = JSON.parse(rawThemeData);
     } catch (e) {
-      return <p className="text-red-500 mt-4 text-xs font-bold">AnimeThemes Mounted: Failed to parse themeData</p>;
+      return null;
     }
   }
 
@@ -16,7 +16,7 @@ export default function AnimeThemes({ themeData: rawThemeData }: { themeData: an
   const hasEndings = themeData?.endings?.length > 0;
 
   if (!hasOpenings && !hasEndings) {
-    return <p className="text-gray-500 mt-4 text-xs font-bold">AnimeThemes Mounted: Empty openings/endings</p>;
+    return null;
   }
 
   const renderThemes = (themes: string[]) => (

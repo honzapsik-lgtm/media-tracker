@@ -500,58 +500,6 @@ export async function upsertBaseMedia(rawData: any) {
   const initialStructuralType = resolveAniListType(rawData.format || '', rawData.episodes, rawData.duration);
   const isManga = initialStructuralType === 'MANGA';
 
-  if (!isManga) {
-    // 1. Traverse backward synchronously to find absolute root to prevent 404s
-    const visitedBackward = new Set<number>();
-    let currentId = anilistId;
-    let currentData = rootData;
-    
-    const { fetchAnilistNodeEdges } = await import('@/lib/anilist');
-    
-    while (true) {
-      if (visitedBackward.has(currentId)) break;
-      visitedBackward.add(currentId);
-      
-      // If we hit an existing root in DB, use it
-      const existingMedia = await prisma.media.findUnique({ where: { anilistId: currentId } });
-      if (existingMedia && existingMedia.isMainStoryline) {
-          break;
-      }
-      
-      let edges = currentData.relations?.edges || [];
-      if (!edges.length) {
-         const fullData = await fetchAnilistNodeEdges(currentId);
-         if (fullData) {
-           currentData = fullData;
-           edges = currentData.relations?.edges || [];
-         }
-      }
-      
-      const parentEdge = edges.find((e: any) => {
-        if (e.relationType === 'PREQUEL' || e.relationType === 'PARENT') {
-          if (e.relationType === 'PARENT' && ['TV', 'TV_SHORT'].includes(currentData.format || '')) return false;
-          if (['TV', 'TV_SHORT'].includes(currentData.format || '')) {
-            if (!['TV', 'TV_SHORT'].includes(e.node?.format || '')) return false;
-          }
-          return true;
-        }
-        return false;
-      });
-      
-      if (parentEdge && parentEdge.node) {
-        currentId = parentEdge.node.id;
-        const nextData = await fetchAnilistNodeEdges(currentId);
-        if (nextData) currentData = nextData;
-        else break;
-      } else {
-        break;
-      }
-    }
-    
-    anilistId = currentId;
-    rootData = currentData;
-  }
-
   const title = rootData.title?.english || rootData.title?.romaji || `AniList ${anilistId}`;
   
   const structuralType = resolveAniListType(rootData.format || '', rootData.episodes, rootData.duration);
@@ -588,15 +536,15 @@ export async function upsertBaseMedia(rawData: any) {
     }
   });
 
-  let shouldEnqueue = true;
+  let shouldEnqueue = false;
   if (isManga) {
     let rootMedia = dbMedia;
     if (dbMedia.relatedMediaId) {
       const foundRoot = await prisma.media.findUnique({ where: { id: dbMedia.relatedMediaId } });
       if (foundRoot) rootMedia = foundRoot;
     }
-    if (rootMedia.franchiseSyncedAt) {
-      shouldEnqueue = false;
+    if (!rootMedia.franchiseSyncedAt) {
+      shouldEnqueue = true;
     }
   }
 

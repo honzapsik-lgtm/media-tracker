@@ -16,38 +16,18 @@ export default async function SearchPage({
   const query = resolvedParams.q || "";
   
   // PARALLEL FETCHING: All APIs hit simultaneously
-  const [tmdbResultsRaw, games, anilistRaw] = query 
+  const [tmdbResults, games, manga] = query 
     ? await Promise.all([searchTMDb(query), searchGames(query), searchAniList(query)])
     : [[], [], []];
 
-  let anilist = anilistRaw;
-
-  // The TMDB Shield
-  const shieldedAnime: any[] = [];
-  const tmdbResults = tmdbResultsRaw.filter((item: any) => {
-    const genres = item.genreIds || item.genre_ids || [];
-    const lang = item.originalLanguage || item.original_language;
-    const isJapaneseAnime = lang === 'ja' && genres.some((g: any) => Number(g) === 16);
-    if (isJapaneseAnime) {
-      shieldedAnime.push(item);
-      return false;
-    }
-    return true;
-  });
-
-  // AniList Typo Fallback: fuzzy matching fallback utilizing TMDB's superior search
-  if (anilist.length === 0 && shieldedAnime.length > 0) {
-    anilist = await searchAniList(shieldedAnime[0].title);
-  }
-
-  // Interleave results (AniList, TMDB, Games)
+  // Interleave results (TMDB, Games, Manga)
   let combinedResults: any[] = [];
   if (query) {
-    const maxLen = Math.max(tmdbResults.length, games.length, anilist.length);
+    const maxLen = Math.max(tmdbResults.length, games.length, manga.length);
     for (let i = 0; i < maxLen; i++) {
-      if (anilist[i]) combinedResults.push(anilist[i]);
       if (tmdbResults[i]) combinedResults.push(tmdbResults[i]);
       if (games[i]) combinedResults.push(games[i]);
+      if (manga[i]) combinedResults.push(manga[i]);
     }
   }
 

@@ -1,6 +1,6 @@
 import { MediaItem } from "@/types";
 import { prisma } from "@/lib/prisma";
-import { getMangaDexId, getMangaDexCoverUrl } from "./mangadex";
+import { getMangaDexId, getMangaDexCoverUrl, searchMangaDex } from "./mangadex";
 
 async function fetchWithRetry(url: string, options: RequestInit, retries = 3): Promise<Response> {
   for (let i = 0; i < retries; i++) {
@@ -357,114 +357,167 @@ export function resolveAniListType(format: string, episodes: number | null, dura
 }
 
 export async function searchAniList(query: string): Promise<MediaItem[]> {
-  const response = await fetchWithRetry("https://graphql.anilist.co", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Accept": "application/json",
-    },
-    body: JSON.stringify({
-      query: `
-        query ($search: String) {
-          Page(page: 1, perPage: 50) {
-            media(search: $search, sort: POPULARITY_DESC) {
-              id
-              title {
-                romaji
-                english
-              }
-              format
-              episodes
-              duration
-              coverImage {
-                large
-              }
-              startDate {
-                year
-                month
-                day
-              }
-              relations {
-                edges {
-                  relationType
-                  node {
-                    format
-                    episodes
-                    duration
-                  }
+  try {
+    const response = await fetchWithRetry("https://graphql.anilist.co", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+      },
+      body: JSON.stringify({
+        query: `
+          query ($search: String) {
+            Page(page: 1, perPage: 50) {
+              media(search: $search, type: MANGA, sort: POPULARITY_DESC) {
+                id
+                title {
+                  romaji
+                  english
+                }
+                format
+                chapters
+                volumes
+                coverImage {
+                  large
+                }
+                startDate {
+                  year
+                  month
+                  day
                 }
               }
             }
           }
-        }
-      `,
-      variables: { search: query }
-    }),
-    next: { revalidate: 60 }
-  });
+        `,
+        variables: { search: query }
+      }),
+      next: { revalidate: 60 }
+    });
 
-  if (!response.ok) {
-    const text = await response.text().catch(() => '');
-    console.error("AniList API Error in searchAniList:", response.status, response.statusText, text);
-    return [];
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      console.warn("AniList API returned non-OK status in searchAniList (falling back to MangaDex):", response.status, response.statusText, text);
+      return await searchMangaDex(query);
+    }
+
+    const json = await response.json();
+    const mediaList = json.data?.Page?.media || [];
+
+    if (mediaList.length === 0) {
+      return await searchMangaDex(query);
+    }
+
+    return mediaList.map((item: any) => {
+      const title = item.title.english || item.title.romaji || "Unknown Title";
+      const releaseDate = item.startDate?.year
+        ? `${item.startDate.year}-${String(item.startDate.month || 1).padStart(2, '0')}-${String(item.startDate.day || 1).padStart(2, '0')}`
+        : 'N/A';
+
+      return {
+        id: `anilist-${item.id}`,
+        title,
+        type: 'manga',
+        image: item.coverImage?.large || null,
+        releaseDate,
+        origin: 'ANILIST'
+      };
+    });
+  } catch (err) {
+    console.warn("searchAniList request failed, falling back to MangaDex:", err);
+    return await searchMangaDex(query);
+  }
+}
+
+export async function searchRelatedManga(title: string): Promise<{ id: number | string; title: string; image: string | null } | null> {
+  if (!title || !title.trim()) return null;
+  const cacheKey = `related-manga-${title.trim().toLowerCase()}`;
+
+  try {
+    const cached = await prisma.apiCache.findUnique({ where: { id: cacheKey } });
+    if (cached && cached.expires_at > new Date()) {
+      return cached.data as any;
+    }
+  } catch (e) {
+    // Ignore cache read errors
   }
 
-  const json = await response.json();
-  const mediaList = json.data?.Page?.media || [];
-
-  const results: MediaItem[] = [];
-
-  for (const item of mediaList) {
-    const structuralType = resolveAniListType(item.format || '', item.episodes, item.duration);
-    
-    // Deduplication check
-    const edges = item.relations?.edges || [];
-    let hasSerializedParentOrPrequel = false;
-    if (structuralType === 'SERIALIZED') {
-      hasSerializedParentOrPrequel = edges.some((edge: any) => {
-        if (edge.relationType === 'PREQUEL' || edge.relationType === 'PARENT') {
-          // TV shows should NEVER be hidden by a PARENT relation, only by PREQUEL (previous seasons).
-          // This prevents Steins;Gate (TV) from being hidden by Chaos;Head (TV).
-          if (edge.relationType === 'PARENT' && ['TV', 'TV_SHORT'].includes(item.format || '')) {
-            return false;
-          }
-
-          // Usurper Protection: If current node is TV, only yield to TV
-          if (['TV', 'TV_SHORT'].includes(item.format || '')) {
-            if (!['TV', 'TV_SHORT'].includes(edge.node?.format || '')) {
-              return false;
+  try {
+    const response = await fetchWithRetry("https://graphql.anilist.co", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      signal: AbortSignal.timeout(3500),
+      body: JSON.stringify({
+        query: `
+          query ($search: String) {
+            Page(page: 1, perPage: 1) {
+              media(search: $search, type: MANGA, sort: POPULARITY_DESC) {
+                id
+                title { romaji english }
+                coverImage { large }
+              }
             }
           }
-
-          const parentType = resolveAniListType(edge.node?.format || '', edge.node?.episodes, edge.node?.duration);
-          return parentType === 'SERIALIZED';
-        }
-        return false;
-      });
-    }
-    
-    if (hasSerializedParentOrPrequel && structuralType !== 'FEATURE') {
-      continue;
-    }
-
-    const title = item.title.english || item.title.romaji || "Unknown Title";
-    const releaseDate = item.startDate?.year ? `${item.startDate.year}-${String(item.startDate.month || 1).padStart(2, '0')}-${String(item.startDate.day || 1).padStart(2, '0')}` : 'N/A';
-    
-    let type = 'other';
-    if (structuralType === 'SERIALIZED') type = 'show';
-    else if (structuralType === 'FEATURE') type = 'movie';
-    else if (structuralType === 'MANGA') type = 'manga';
-
-    results.push({
-      id: String(item.id),
-      title,
-      type,
-      image: item.coverImage?.large || null,
-      releaseDate,
-      origin: 'ANILIST'
+        `,
+        variables: { search: title }
+      }),
+      next: { revalidate: 86400 }
     });
+
+    if (response.ok) {
+      const json = await response.json();
+      const item = json.data?.Page?.media?.[0];
+      if (item) {
+        const result = {
+          id: item.id,
+          title: item.title?.english || item.title?.romaji || "Manga",
+          image: item.coverImage?.large || null
+        };
+
+        try {
+          await prisma.apiCache.upsert({
+            where: { id: cacheKey },
+            update: { data: result as any, expires_at: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7) },
+            create: { id: cacheKey, provider: 'anilist', data: result as any, expires_at: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7) }
+          });
+        } catch (e) {
+          // Ignore cache write error
+        }
+
+        return result;
+      }
+    }
+  } catch (e) {
+    console.warn("searchRelatedManga AniList attempt failed, trying MangaDex fallback:", e);
   }
 
-  return results;
+  // Fallback to MangaDex for related manga
+  try {
+    const mdResults = await searchMangaDex(title);
+    if (mdResults && mdResults.length > 0) {
+      const top = mdResults[0];
+      const result = {
+        id: top.id,
+        title: top.title,
+        image: top.image
+      };
+
+      try {
+        await prisma.apiCache.upsert({
+          where: { id: cacheKey },
+          update: { data: result as any, expires_at: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7) },
+          create: { id: cacheKey, provider: 'mangadex', data: result as any, expires_at: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7) }
+        });
+      } catch (e) {
+        // Ignore cache write error
+      }
+
+      return result;
+    }
+  } catch (error) {
+    console.warn("searchRelatedManga MangaDex fallback failed:", error);
+  }
+
+  return null;
 }
+
 

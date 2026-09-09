@@ -115,11 +115,27 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
   let rawData: any = null;
   let primaryStaff: any[] = [];
   let secondaryStaff: any[] = [];
+  let relatedManga: { id: number | string; title: string; image: string | null } | null = null;
+  let animeThemes: any = null;
   
   if (provider === 'tmdb') {
     const tmdbType = parts[1] as 'movie' | 'tv'; 
     const externalId = parts[2];
     mediaDetails = await getTMDbDetails(externalId, tmdbType);
+    if (mediaDetails) {
+      const isAnime = (mediaDetails.originalLanguage === 'ja') && mediaDetails.genres?.includes('Animation');
+      if (isAnime) {
+        const { searchRelatedManga } = await import('@/lib/anilist');
+        const { fetchAnimeThemesForMedia } = await import('@/lib/jikan');
+
+        const [manga, themes] = await Promise.all([
+          searchRelatedManga(mediaDetails.title).catch(() => null),
+          fetchAnimeThemesForMedia(mediaDetails.title, mediaDetails.originalTitle).catch(() => null),
+        ]);
+        relatedManga = manga;
+        animeThemes = themes;
+      }
+    }
   } else if (provider === 'igdb' || provider === 'rawg') {
     if (provider === 'igdb') {
       mediaDetails = await getGameDetails(parts[2]);
@@ -158,11 +174,54 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
         )
       );
     }
+  } else if (provider === 'mangadex') {
+    const mangadexId = parts.slice(1).join('-');
+    const localMedia = await prisma.media.findUnique({
+      where: { mangadexId }
+    });
+
+    if (localMedia) {
+      redirect(`/media/${localMedia.id}`);
+    }
+
+    const { getMangaDexDetails, upsertMangaDexMedia } = await import('@/lib/mangadex');
+    const mdDetails = await getMangaDexDetails(mangadexId);
+    if (!mdDetails) return notFound();
+
+    const dbMedia = await upsertMangaDexMedia(mdDetails);
+    redirect(`/media/${dbMedia.id}`);
   } else if (provider === 'anilist') {
     const extractedId = parseInt(parts[1]);
-    rawData = await getAnilistDetails(extractedId);
-    if (!rawData) return notFound();
+    const localMedia = await prisma.media.findUnique({
+      where: { anilistId: extractedId }
+    });
+    if (localMedia) {
+      redirect(`/media/${localMedia.id}`);
+    }
+
+    rawData = await getAnilistDetails(extractedId).catch(() => null);
+    if (!rawData) {
+      // If AniList is down, try resolving via MAL-Sync / MangaDex
+      const { getMangaDexByAniListId, upsertMangaDexMedia } = await import('@/lib/mangadex');
+      const mdDetails = await getMangaDexByAniListId(extractedId);
+      if (mdDetails) {
+        const dbMedia = await upsertMangaDexMedia(mdDetails);
+        redirect(`/media/${dbMedia.id}`);
+      }
+      return notFound();
+    }
     
+    const { resolveAniListType } = await import('@/lib/anilist');
+    const structuralType = resolveAniListType(rawData.format || '', rawData.episodes, rawData.duration);
+    if (structuralType !== 'MANGA') {
+      const { getMapping } = await import('@/lib/mal-sync');
+      const mapping = await getMapping(extractedId);
+      if (mapping?.tmdbId) {
+        const routeType = structuralType === 'FEATURE' ? 'movie' : 'tv';
+        redirect(`/media/tmdb-${routeType}-${mapping.tmdbId}`);
+      }
+    }
+
     // Guarantee Master Object exists and enqueue the franchise worker
     const dbMedia = await upsertBaseMedia(rawData);
     
@@ -180,67 +239,126 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
         }
       }
     });
-    if (!localMedia || !localMedia.anilistId) return notFound();
-    
-    rawData = await getAnilistDetails(localMedia.anilistId);
-    if (!rawData) return notFound();
-    
-    // Aggregation Logic: Collect blobs from root, canon seasons, and canon movies
-    const aggregatedStaff = [localMedia.staffData || rawData.staff];
-    const aggregatedCast = [localMedia.castData];
-    const aggregatedStudio = [localMedia.studioData];
+    if (!localMedia) return notFound();
 
-    if (localMedia.seasons) {
-      for (const s of localMedia.seasons) {
-        if (s.staffData) aggregatedStaff.push(s.staffData);
-        if (s.castData) aggregatedCast.push(s.castData);
-        if (s.studioData) aggregatedStudio.push(s.studioData);
-      }
+    // If it's a legacy anime row that has a tmdbId, redirect cleanly to TMDb!
+    if (localMedia.type !== 'MANGA' && localMedia.tmdbId) {
+      redirect(`/media/tmdb-${localMedia.type === 'MOVIE' ? 'movie' : 'tv'}-${localMedia.tmdbId}`);
     }
-    if (localMedia.inverseRelated) {
-      for (const rel of localMedia.inverseRelated) {
-        if (rel.isMainStoryline) {
-          if (rel.staffData) aggregatedStaff.push(rel.staffData);
-          if (rel.castData) aggregatedCast.push(rel.castData);
-          if (rel.studioData) aggregatedStudio.push(rel.studioData);
+
+    if (localMedia.type === 'MANGA') {
+      if (localMedia.anilistId) {
+        rawData = await getAnilistDetails(localMedia.anilistId).catch(() => null);
+      }
+
+      let mdDetails: any = null;
+      if (!rawData && localMedia.mangadexId) {
+        const { getMangaDexDetails } = await import('@/lib/mangadex');
+        mdDetails = await getMangaDexDetails(localMedia.mangadexId);
+      }
+
+      const aggregatedStaff: any[] = [];
+      if (localMedia.staffData) aggregatedStaff.push(localMedia.staffData);
+      if (rawData?.staff) aggregatedStaff.push(rawData.staff);
+      if (mdDetails?.staff) aggregatedStaff.push(mdDetails.staff);
+
+      mediaDetails = {
+        id: localMedia.id,
+        title: localMedia.title || rawData?.title?.english || rawData?.title?.romaji || mdDetails?.title || "Unknown Title",
+        type: 'manga',
+        image: rawData?.coverImage?.extraLarge || rawData?.coverImage?.large || mdDetails?.image || null,
+        backdrop: rawData?.bannerImage || null,
+        description: rawData?.description || mdDetails?.description || "",
+        releaseDate: localMedia.releaseDate || (rawData?.startDate?.year ? `${rawData.startDate.year}-${String(rawData.startDate.month || 1).padStart(2, '0')}-${String(rawData.startDate.day || 1).padStart(2, '0')}` : mdDetails?.releaseDate || null),
+        globalScore: rawData?.averageScore || 0,
+        runtime: rawData?.duration || null,
+        genres: mdDetails?.genres || [],
+        trailerUrl: rawData?.trailer?.site === "youtube" ? `https://www.youtube.com/embed/${rawData.trailer.id}` : null,
+        streamingLinks: (() => {
+          const seen = new Set();
+          return (rawData?.externalLinks || [])
+            .filter((link: any) => link.type === "STREAMING")
+            .filter((link: any) => {
+              if (!link.site) return false;
+              if (seen.has(link.site)) return false;
+              seen.add(link.site);
+              return true;
+            });
+        })(),
+        cast: [],
+        seasons: null,
+        credits: getMasterCrew(aggregatedStaff),
+        castData: [],
+        studioData: [],
+        localDbMedia: localMedia,
+        chapters: rawData?.chapters || mdDetails?.chapters || null,
+        volumes: rawData?.volumes || mdDetails?.volumes || null,
+        status: rawData?.status || mdDetails?.status || null,
+        mangadexId: localMedia.mangadexId || rawData?.mangadexId || mdDetails?.mangadexId || mdDetails?.id || null
+      };
+    } else {
+      if (!localMedia.anilistId) return notFound();
+      
+      rawData = await getAnilistDetails(localMedia.anilistId);
+      if (!rawData) return notFound();
+      
+      // Aggregation Logic: Collect blobs from root, canon seasons, and canon movies
+      const aggregatedStaff = [localMedia.staffData || rawData.staff];
+      const aggregatedCast = [localMedia.castData];
+      const aggregatedStudio = [localMedia.studioData];
+
+      if (localMedia.seasons) {
+        for (const s of localMedia.seasons) {
+          if (s.staffData) aggregatedStaff.push(s.staffData);
+          if (s.castData) aggregatedCast.push(s.castData);
+          if (s.studioData) aggregatedStudio.push(s.studioData);
         }
       }
-    }
+      if (localMedia.inverseRelated) {
+        for (const rel of localMedia.inverseRelated) {
+          if (rel.isMainStoryline) {
+            if (rel.staffData) aggregatedStaff.push(rel.staffData);
+            if (rel.castData) aggregatedCast.push(rel.castData);
+            if (rel.studioData) aggregatedStudio.push(rel.studioData);
+          }
+        }
+      }
 
-    mediaDetails = {
-      id: localMedia.id,
-      title: localMedia.title || rawData.title?.english || rawData.title?.romaji || "Unknown Title",
-      type: localMedia.type.toLowerCase(),
-      image: rawData.coverImage?.extraLarge || rawData.coverImage?.large || null,
-      backdrop: rawData.bannerImage || null,
-      description: rawData.description,
-      releaseDate: localMedia.releaseDate || (rawData.startDate?.year ? `${rawData.startDate.year}-${String(rawData.startDate.month || 1).padStart(2, '0')}-${String(rawData.startDate.day || 1).padStart(2, '0')}` : null),
-      globalScore: rawData.averageScore ? rawData.averageScore : 0,
-      runtime: rawData.duration,
-      genres: [],
-      trailerUrl: rawData.trailer?.site === "youtube" ? `https://www.youtube.com/embed/${rawData.trailer.id}` : null,
-      streamingLinks: (() => {
-        const seen = new Set();
-        return (rawData.externalLinks || [])
-          .filter((link: any) => link.type === "STREAMING")
-          .filter((link: any) => {
-            if (!link.site) return false;
-            if (seen.has(link.site)) return false;
-            seen.add(link.site);
-            return true;
-          });
-      })(),
-      cast: [],
-      seasons: null,
-      credits: getMasterCrew(aggregatedStaff),
-      castData: getMasterCast(aggregatedCast),
-      studioData: getMasterStudios(aggregatedStudio),
-      localDbMedia: localMedia,
-      chapters: rawData.chapters || null,
-      volumes: rawData.volumes || null,
-      status: rawData.status || null,
-      mangadexId: localMedia.mangadexId || rawData.mangadexId || null
-    };
+      mediaDetails = {
+        id: localMedia.id,
+        title: localMedia.title || rawData.title?.english || rawData.title?.romaji || "Unknown Title",
+        type: localMedia.type.toLowerCase(),
+        image: rawData.coverImage?.extraLarge || rawData.coverImage?.large || null,
+        backdrop: rawData.bannerImage || null,
+        description: rawData.description,
+        releaseDate: localMedia.releaseDate || (rawData.startDate?.year ? `${rawData.startDate.year}-${String(rawData.startDate.month || 1).padStart(2, '0')}-${String(rawData.startDate.day || 1).padStart(2, '0')}` : null),
+        globalScore: rawData.averageScore ? rawData.averageScore : 0,
+        runtime: rawData.duration,
+        genres: [],
+        trailerUrl: rawData.trailer?.site === "youtube" ? `https://www.youtube.com/embed/${rawData.trailer.id}` : null,
+        streamingLinks: (() => {
+          const seen = new Set();
+          return (rawData.externalLinks || [])
+            .filter((link: any) => link.type === "STREAMING")
+            .filter((link: any) => {
+              if (!link.site) return false;
+              if (seen.has(link.site)) return false;
+              seen.add(link.site);
+              return true;
+            });
+        })(),
+        cast: [],
+        seasons: null,
+        credits: getMasterCrew(aggregatedStaff),
+        castData: getMasterCast(aggregatedCast),
+        studioData: getMasterStudios(aggregatedStudio),
+        localDbMedia: localMedia,
+        chapters: rawData.chapters || null,
+        volumes: rawData.volumes || null,
+        status: rawData.status || null,
+        mangadexId: localMedia.mangadexId || rawData.mangadexId || null
+      };
+    }
   }
 
   if (!mediaDetails) return notFound();
@@ -499,9 +617,12 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
               totalVolumes={mediaDetails.volumes}
             />
 
-            <WatchProviders watchData={localDbMedia?.watchData} />
-            {(mediaDetails.type === 'movie' || mediaDetails.type === 'anime') && (
-              <AnimeThemes themeData={localDbMedia?.themeData} />
+            <WatchProviders watchData={localDbMedia?.watchData || mediaDetails?.watchData} />
+            {animeThemes && (
+              <AnimeThemes themeData={animeThemes} />
+            )}
+            {localDbMedia?.themeData && (
+              <AnimeThemes themeData={localDbMedia.themeData} />
             )}
 
             {/* NEW METADATA ROW */}
@@ -779,6 +900,29 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
                       </div>
                     )
                   )}
+
+                {relatedManga && (
+                  <div>
+                    <h2 className="text-2xl font-bold mb-6 text-gray-400">Source Manga</h2>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                      <Link 
+                        href={String(relatedManga.id).startsWith('mangadex-') || String(relatedManga.id).startsWith('anilist-') ? `/media/${relatedManga.id}` : `/media/anilist-${relatedManga.id}`} 
+                        className="bg-gray-900 p-4 rounded-xl border border-gray-800 hover:border-blue-500 hover:bg-gray-800/80 transition-colors flex items-center gap-4 group"
+                      >
+                        {relatedManga.image ? (
+                          <img src={relatedManga.image} alt={relatedManga.title} className="w-14 h-20 object-cover rounded-lg shadow-md shrink-0" />
+                        ) : (
+                          <div className="w-14 h-20 bg-gray-800 rounded-lg flex items-center justify-center text-xs text-gray-500 shrink-0">No Img</div>
+                        )}
+                        <div className="min-w-0">
+                          <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Manga</span>
+                          <p className="font-bold text-sm text-gray-200 group-hover:text-blue-400 transition-colors truncate">{relatedManga.title}</p>
+                          <p className="text-xs text-gray-500 mt-1">Read on MangaDex →</p>
+                        </div>
+                      </Link>
+                    </div>
+                  </div>
+                )}
                 </div>
               )}
           </div>

@@ -62,19 +62,22 @@ export function getMasterCrew(staffJsons: any | any[]) {
       }
 
       const godTierRole = getGodTierRole(cleanRole);
+      const personId = edge.node?.id ? `anilist-${edge.node.id}` : (edge.id ? String(edge.id) : 'unknown');
+      const personName = edge.node?.name?.full || edge.name || 'Unknown';
+      const personImage = edge.node?.image?.large || edge.image || null;
 
       if (godTierRole) {
         architects.push({
-          id: `anilist-${edge.node.id}`,
-          name: edge.node.name?.full || 'Unknown',
-          image: edge.node.image?.large || null,
+          id: personId,
+          name: personName,
+          image: personImage,
           role: godTierRole
         });
       } else {
         secondary.push({
-          id: `anilist-${edge.node.id}`,
-          name: edge.node.name?.full || 'Unknown',
-          image: edge.node.image?.large || null,
+          id: personId,
+          name: personName,
+          image: personImage,
           role: cleanRole
         });
       }
@@ -137,11 +140,14 @@ export function getSeasonCrew(staffJsons: any | any[]) {
       }
 
       const godTierRole = getGodTierRole(cleanRole);
+      const personId = edge.node?.id ? `anilist-${edge.node.id}` : (edge.id ? String(edge.id) : 'unknown');
+      const personName = edge.node?.name?.full || edge.name || 'Unknown';
+      const personImage = edge.node?.image?.large || edge.image || null;
 
       const parsedCredit = {
-        id: `anilist-${edge.node.id}`,
-        name: edge.node.name?.full || 'Unknown',
-        image: edge.node.image?.large || null,
+        id: personId,
+        name: personName,
+        image: personImage,
         role: godTierRole ? godTierRole : cleanRole
       };
 

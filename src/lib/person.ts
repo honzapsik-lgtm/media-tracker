@@ -150,15 +150,6 @@ export async function fetchTMDbPerson(id: number): Promise<UnifiedProfile | null
 
   for (const item of rawCast) {
     if (item.media_type !== 'movie' && item.media_type !== 'tv') continue;
-    
-    // Filter out Japanese Anime to avoid duplicates with AniList
-    const genres = item.genre_ids || [];
-    const lang = item.original_language;
-    const isVoice = item.character && item.character.toLowerCase().includes('(voice)');
-    const isJP = lang === 'ja' || (item.origin_country && item.origin_country.includes('JP'));
-    
-    const isJapaneseAnime = (genres.some((g: any) => Number(g) === 16) && isJP) || (isVoice && isJP);
-    if (isJapaneseAnime) continue;
 
     const mediaId = `tmdb-${item.media_type}-${item.id}`;
     if (seenCast.has(mediaId)) continue;
@@ -178,14 +169,6 @@ export async function fetchTMDbPerson(id: number): Promise<UnifiedProfile | null
 
   for (const item of rawCrew) {
     if (item.media_type !== 'movie' && item.media_type !== 'tv') continue;
-
-    // Filter out Japanese Anime to avoid duplicates with AniList
-    const genres = item.genre_ids || [];
-    const lang = item.original_language;
-    const isJP = lang === 'ja' || (item.origin_country && item.origin_country.includes('JP'));
-    
-    const isJapaneseAnime = genres.some((g: any) => Number(g) === 16) && isJP;
-    if (isJapaneseAnime) continue;
 
     const mediaId = `tmdb-${item.media_type}-${item.id}`;
     const key = `${mediaId}-${item.job}`;
