@@ -7,8 +7,19 @@ function getGodTierRole(role: string): string | null {
     return 'Director';
   }
 
+  // Manga Creators / Authors / Artists
+  if (/^(story & art|mangaka|story and art)$/i.test(lowerRole) || lowerRole.includes('story & art') || lowerRole.includes('story and art')) {
+    return 'Story & Art';
+  }
+  if (/^(author|story|original story)$/i.test(lowerRole)) {
+    return 'Author';
+  }
+  if (/^(artist|art|illustrator|illustration)$/i.test(lowerRole)) {
+    return 'Artist';
+  }
+
   // Original Creator
-  if (/^(original creator|original story|original concept|creator|original plan)$/i.test(lowerRole) || lowerRole.includes('story & art')) {
+  if (/^(original creator|original concept|creator|original plan)$/i.test(lowerRole)) {
     return 'Original Creator';
   }
 

@@ -363,14 +363,25 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
 
   if (!mediaDetails) return notFound();
 
+  const PRIMARY_ROLES = [
+    'Director', 'Writer', 'Creator', 'Original Creator', 'Series Composition', 'Developer',
+    'Author', 'Artist', 'Story & Art', 'Story', 'Art', 'Mangaka', 'Illustrator', 'Original Story'
+  ];
+
   if (provider === 'rawg' || provider === 'igdb') {
     // Already populated from getGameCrew
   } else if (Array.isArray(mediaDetails.credits)) {
-    primaryStaff = mediaDetails.credits.filter((c: any) => ['Director', 'Writer', 'Creator', 'Original Creator', 'Series Composition', 'Developer'].includes(c.role));
-    secondaryStaff = mediaDetails.credits.filter((c: any) => !['Director', 'Writer', 'Creator', 'Original Creator', 'Series Composition', 'Developer'].includes(c.role));
+    primaryStaff = mediaDetails.credits.filter((c: any) => PRIMARY_ROLES.includes(c.role));
+    secondaryStaff = mediaDetails.credits.filter((c: any) => !PRIMARY_ROLES.includes(c.role));
   } else {
     primaryStaff = mediaDetails.credits?.primary || [];
     secondaryStaff = mediaDetails.credits?.secondary || [];
+  }
+
+  // Fallback for manga: If primaryStaff is empty but secondaryStaff exists, promote them so they show immediately
+  if (primaryStaff.length === 0 && secondaryStaff.length > 0) {
+    primaryStaff = [...secondaryStaff];
+    secondaryStaff = [];
   }
 
   const mediaTypeKey = (mediaDetails.type as "game" | "movie" | "show" | "manga") || "movie";
