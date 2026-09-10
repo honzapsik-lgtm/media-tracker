@@ -29,6 +29,25 @@ export async function GET(request: Request) {
   const session = await getServerSession(authOptions);
   const { searchParams } = new URL(request.url);
   const mediaId = searchParams.get("mediaId");
+  const prefix = searchParams.get("prefix");
+
+  if (prefix) {
+    if (!session?.user?.id) {
+      return NextResponse.json({ ratings: {} });
+    }
+    const userRatings = await prisma.userRating.findMany({
+      where: {
+        user_id: session.user.id,
+        media_id: { startsWith: prefix },
+      },
+      select: { media_id: true, score: true },
+    });
+    const ratingsMap: Record<string, number> = {};
+    for (const r of userRatings) {
+      ratingsMap[r.media_id] = r.score;
+    }
+    return NextResponse.json({ ratings: ratingsMap });
+  }
 
   if (!mediaId) {
     return NextResponse.json({ error: "mediaId is required" }, { status: 400 });

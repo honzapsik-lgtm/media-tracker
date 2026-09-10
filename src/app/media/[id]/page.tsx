@@ -827,13 +827,18 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
                 {mediaTypeKey === 'manga' ? (
                   <div className="mt-12">
                     <h2 className="text-3xl font-bold mb-8">Chapters</h2>
-                    {mediaDetails.mangadexId ? (
-                      <MangaChapters mangadexId={mediaDetails.mangadexId} totalChapters={mediaDetails.chapters} />
-                    ) : isSyncing ? (
-                      <MangaChaptersLoader mediaId={localDbMedia.id} />
+                    {mediaDetails.mangadexId || mediaDetails.chapters ? (
+                      <MangaChapters
+                        mangadexId={mediaDetails.mangadexId}
+                        totalChapters={mediaDetails.chapters}
+                        totalVolumes={mediaDetails.volumes}
+                        mediaId={localDbMedia?.id || mediaId}
+                        mediaTitle={mediaDetails.title}
+                        mediaImage={mediaDetails.image}
+                      />
                     ) : (
                       <div className="text-center py-16 bg-gray-900/30 rounded-2xl border border-gray-800 border-dashed">
-                        <p className="text-gray-400">No English chapters found for this manga on MangaDex.</p>
+                        <p className="text-gray-400">No chapters found for this manga.</p>
                       </div>
                     )}
                   </div>
@@ -868,48 +873,23 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
                   )
                 )}
 
-                  {mediaTypeKey === 'manga' ? (
-                    isSyncing ? (
-                      <div>
-                        <h2 className="text-2xl font-bold mb-6 text-gray-400">Related</h2>
-                        <SyncLoader 
-                          mediaId={localDbMedia.id}
-                          title="Syncing Related Media..."
-                          description="We are currently building the franchise tree for this manga to show all related prequels, sequels, and spin-offs. They will appear here automatically in just a moment!"
-                        />
+                  {spinoffItems.length > 0 && (
+                    <div>
+                      <h2 className="text-2xl font-bold mb-6 text-gray-400">Related</h2>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        {spinoffItems.map((m: any) => (
+                          <Link key={m.id} href={`/media/${m.id}`} className={`bg-gray-950 p-4 rounded-xl border border-gray-800 hover:border-gray-600 transition-colors block text-center relative pt-8`}>
+                            {m.relationLabel && (
+                              <div className="absolute top-2 left-2 bg-black/55 border border-gray-800/80 text-gray-400 px-1.5 py-0.5 rounded text-[9px] uppercase font-semibold">
+                                {m.relationLabel}
+                              </div>
+                            )}
+                            <p className="font-bold text-sm text-gray-300 line-clamp-2">{m.title || 'Unknown'}</p>
+                            <p className="text-xs text-gray-500 mt-2 uppercase font-black">{m.type}</p>
+                          </Link>
+                        ))}
                       </div>
-                    ) : spinoffItems.length > 0 ? (
-                      <div>
-                        <h2 className="text-2xl font-bold mb-6 text-gray-400">Related</h2>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                          {spinoffItems.map((m: any) => (
-                            <Link key={m.id} href={`/media/${m.id}`} className={`bg-gray-950 p-4 rounded-xl border border-gray-800 hover:border-gray-600 transition-colors block text-center relative pt-8`}>
-                              {m.relationLabel && (
-                                <div className="absolute top-2 left-2 bg-black/55 border border-gray-800/80 text-gray-400 px-1.5 py-0.5 rounded text-[9px] uppercase font-semibold">
-                                  {m.relationLabel}
-                                </div>
-                              )}
-                              <p className="font-bold text-sm text-gray-300 line-clamp-2">{m.title || 'Unknown'}</p>
-                              <p className="text-xs text-gray-500 mt-2 uppercase font-black">{m.type}</p>
-                            </Link>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null
-                  ) : (
-                    !isSyncing && spinoffItems.length > 0 && (
-                      <div>
-                        <h2 className="text-2xl font-bold mb-6 text-gray-400">Related</h2>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                          {spinoffItems.map((m: any) => (
-                            <Link key={m.id} href={`/media/${m.id}`} className="bg-gray-950 p-4 rounded-xl border border-gray-800 hover:border-gray-600 transition-colors block text-center">
-                              <p className="font-bold text-sm text-gray-300 line-clamp-2">{m.title || 'Unknown'}</p>
-                              <p className="text-xs text-gray-500 mt-2 uppercase font-black">{m.type}</p>
-                            </Link>
-                          ))}
-                        </div>
-                      </div>
-                    )
+                    </div>
                   )}
 
                 {relatedManga && (

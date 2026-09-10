@@ -21,9 +21,10 @@ interface RatingSliderProps {
   mediaTitle: string; mediaImage: string | null;
   mediaReleaseDate?: string | null;
   initialRating?: number; initialCriteria?: Record<string, number>;
+  onSaved?: (score: number) => void;
 }
 
-export default function RatingSlider({ mediaId, mediaType, mediaTitle, mediaImage, mediaReleaseDate, initialRating = 50, initialCriteria }: RatingSliderProps) {
+export default function RatingSlider({ mediaId, mediaType, mediaTitle, mediaImage, mediaReleaseDate, initialRating = 50, initialCriteria, onSaved }: RatingSliderProps) {
   const router = useRouter();
   const [rating, setRating] = useState<number>(initialRating);
   const [hasRated, setHasRated] = useState<boolean>(false);
@@ -103,6 +104,7 @@ export default function RatingSlider({ mediaId, mediaType, mediaTitle, mediaImag
       setMessage({ type: "success", text: "Rating saved successfully!" });
       setHasRated(true);
       fetchData(); 
+      onSaved?.(rating);
       router.refresh(); // Tells Next.js to instantly reload the server data on the main page
       if (!hasRated) {
         setShowListModal(true); // Open the Rank List prompt only for new ratings
