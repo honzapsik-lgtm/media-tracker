@@ -24,10 +24,10 @@ export default function AnimeThemes({ themeData: rawThemeData }: { themeData: an
       {themes.map((theme: string, idx: number) => (
         <li
           key={idx}
-          className="bg-gray-900 px-3 py-2 rounded-lg border border-gray-800 hover:border-gray-600 transition-colors"
+          className="bg-gray-900/80 px-3 py-2 rounded-xl border border-gray-800/80 hover:border-gray-700 transition-colors"
         >
           <span
-            className="block overflow-hidden leading-5 break-words"
+            className="block overflow-hidden leading-snug break-words text-xs font-semibold text-gray-200"
             style={{
               display: "-webkit-box",
               WebkitBoxOrient: "vertical",
@@ -42,18 +42,18 @@ export default function AnimeThemes({ themeData: rawThemeData }: { themeData: an
   );
 
   return (
-    <div className="mt-8 bg-gray-950/50 rounded-xl p-6 border border-gray-800 shadow-xl mb-6">
+    <div className="mt-4 bg-gray-950/50 rounded-2xl p-5 border border-gray-800 shadow-xl">
       <h3 className="text-sm font-black text-gray-500 uppercase tracking-widest mb-4">Anime Themes</h3>
-      <div className="space-y-5">
-        {themeData.openings && themeData.openings.length > 0 && (
+      <div className="space-y-4">
+        {hasOpenings && (
           <div>
-            <h4 className="text-xs font-bold text-blue-500 uppercase mb-3 tracking-widest">Openings</h4>
+            <h4 className="text-xs font-bold text-blue-400 uppercase mb-2 tracking-widest">Openings</h4>
             {renderThemes(themeData.openings)}
           </div>
         )}
-        {themeData.endings && themeData.endings.length > 0 && (
+        {hasEndings && (
           <div>
-            <h4 className="text-xs font-bold text-blue-500 uppercase mb-3 tracking-widest">Endings</h4>
+            <h4 className="text-xs font-bold text-blue-400 uppercase mb-2 tracking-widest">Endings</h4>
             {renderThemes(themeData.endings)}
           </div>
         )}

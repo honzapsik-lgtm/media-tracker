@@ -573,7 +573,12 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
             )}
             <RatingSlider mediaId={mediaId} mediaType={mediaTypeKey} mediaTitle={mediaDetails.title} mediaImage={mediaDetails.image} mediaReleaseDate={mediaDetails.releaseDate} />
 
-            {/* WHERE TO WATCH */}
+            {/* WHERE TO STREAM */}
+            {(localDbMedia?.watchData || mediaDetails?.watchData) && (
+              <WatchProviders watchData={localDbMedia?.watchData || mediaDetails?.watchData} />
+            )}
+
+            {/* WHERE TO WATCH (EXTERNAL LINKS) */}
             {mediaDetails.streamingLinks && mediaDetails.streamingLinks.length > 0 && (
               <div className="mt-4 bg-gray-950/50 p-5 rounded-2xl border border-gray-800 shadow-xl">
                 <h3 className="text-sm font-black text-gray-500 uppercase tracking-widest mb-4">
@@ -604,6 +609,11 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
                 </div>
               </div>
             )}
+
+            {/* ANIME THEMES */}
+            {(animeThemes || localDbMedia?.themeData) && (
+              <AnimeThemes themeData={animeThemes || localDbMedia?.themeData} />
+            )}
           </div>
 
           <div className="flex-1">
@@ -627,14 +637,6 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
               totalChapters={mediaDetails.chapters}
               totalVolumes={mediaDetails.volumes}
             />
-
-            <WatchProviders watchData={localDbMedia?.watchData || mediaDetails?.watchData} />
-            {animeThemes && (
-              <AnimeThemes themeData={animeThemes} />
-            )}
-            {localDbMedia?.themeData && (
-              <AnimeThemes themeData={localDbMedia.themeData} />
-            )}
 
             {/* NEW METADATA ROW */}
             <div className="flex flex-wrap items-center gap-3 mt-3 mb-4">
