@@ -176,11 +176,11 @@ async function fetchFromAnimeThemesMoe(
       const primaryToken = anchorNameWords[0]; // e.g. "shingeki", "kimetsu", "jujutsu"
 
       const matchedEntries = animeList.filter((a: any) => {
-        // Exclude movies and non-canon spin-offs from main TV themes
-        if (a.media_format === 'Movie' || a.media_format === 'OVA') return false;
+        // Exclude non-canon spin-offs
+        if (a.media_format === 'OVA') return false;
         const aName = (a.name || '').toLowerCase();
         const aSlug = (a.slug || '').toLowerCase();
-        if (aName.includes('movie') || aName.includes('chuugakkou')) return false;
+        if (aName.includes('chuugakkou')) return false;
         if (primaryToken && (aName.includes(primaryToken) || aSlug.includes(primaryToken))) {
           return true;
         }
@@ -206,14 +206,14 @@ async function fetchFromAnimeThemesMoe(
 
       if (isSeasonalAnime) {
         // CASE 1: SEASONAL ANIME (e.g. Attack on Titan, Demon Slayer, Jujutsu Kaisen)
-        // Group by season names: "Season 1", "Season 2", "Season 3", "The Final Season"
+        // Group by season names: "Season 1", "Season 2", "Season 3", "The Final Season", "Movies"
         const groupMap = new Map<string, { seasonName: string; seasonNumber?: number; order: number; openings: string[]; endings: string[] }>();
 
         for (const entry of entriesToProcess) {
           if (!entry.animethemes || entry.animethemes.length === 0) continue;
 
           const classification = classifyAnimeSeasonGroup(entry.name || '', entry.media_format);
-          if (classification.isMovie || classification.isSpecial) continue;
+          if (classification.isSpecial) continue;
 
           const groupKey = classification.seasonName;
 
@@ -329,7 +329,7 @@ export async function fetchAnimeThemesForMedia(
 
   const isMovie = mediaType === 'movie' || mediaType === 'feature';
   const queryClean = query.toLowerCase().replace(/[^a-z0-9]/g, "-");
-  const cacheKey = isMovie ? `anime-themes-movie-${queryClean}` : `anime-themes-v4-${queryClean}`;
+  const cacheKey = isMovie ? `anime-themes-movie-${queryClean}` : `anime-themes-v5-${queryClean}`;
 
   try {
     const { prisma } = await import("@/lib/prisma");
