@@ -4,6 +4,7 @@ import { getTrendingGames } from '@/lib/games';
 import { getListRankMap, getMediaStatsMap } from '@/lib/media-db';
 import SearchBar from '@/components/SearchBar';
 import MediaRow from '@/components/MediaRow';
+import FriendActivityFeed from '@/components/FriendActivityFeed';
 import { Suspense } from 'react';
 
 export default async function Home() {
@@ -42,6 +43,8 @@ export default async function Home() {
             Your centralized hub for tracking the latest and greatest across movies, TV shows, games, and manga.
           </p>
         </div>
+
+        <FriendActivityFeed />
 
         <MediaRow title="Trending Movies" items={enhancedMovies} />
         <MediaRow title="Trending TV Shows" items={enhancedShows} />

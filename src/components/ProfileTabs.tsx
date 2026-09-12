@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import CustomListsManager from "@/components/CustomListsManager";
 import MediaCardProfileHorizontal from "@/components/MediaCardProfileHorizontal";
+import FriendsManager from "@/components/FriendsManager";
 import { BADGE_DICTIONARY } from "@/components/ProfileHeader";
 
 const getScoreColor = (score: number | null | undefined) => {
@@ -44,7 +45,7 @@ export default function ProfileTabs({
   userBadges?: UserBadge[],
   statsCache?: any[]
 }) {
-  const [activeTab, setActiveTab] = useState<'ratings' | 'reviews' | 'top100' | 'stats' | 'achievements'>('ratings');
+  const [activeTab, setActiveTab] = useState<'ratings' | 'reviews' | 'top100' | 'stats' | 'achievements' | 'friends'>('ratings');
   const [page, setPage] = useState(1);
   const [data, setData] = useState<ProfileItem[]>(initialData);
   const [count, setCount] = useState<number>(initialCount);
@@ -52,7 +53,7 @@ export default function ProfileTabs({
   const limit = 50;
 
   useEffect(() => {
-    if (activeTab === 'stats' || activeTab === 'achievements' || activeTab === 'top100') return;
+    if (activeTab === 'stats' || activeTab === 'achievements' || activeTab === 'top100' || activeTab === 'friends') return;
     if (activeTab === 'ratings' && page === 1 && data === initialData) return; 
 
     const fetchData = async () => {
@@ -175,6 +176,8 @@ export default function ProfileTabs({
       <div className="w-px h-6 bg-gray-700 self-center mx-1 hidden sm:block"></div>
       <button onClick={() => handleTabSwitch('stats')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${activeTab === 'stats' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>Statistics</button>
       <button onClick={() => handleTabSwitch('achievements')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${activeTab === 'achievements' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>Achievements</button>
+      <div className="w-px h-6 bg-gray-700 self-center mx-1 hidden sm:block"></div>
+      <button onClick={() => handleTabSwitch('friends')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${activeTab === 'friends' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>Friends</button>
     </div>
   );
 
@@ -311,6 +314,10 @@ export default function ProfileTabs({
             );
           })}
         </div>
+      )}
+
+      {activeTab === 'friends' && (
+        <FriendsManager />
       )}
     </div>
   );

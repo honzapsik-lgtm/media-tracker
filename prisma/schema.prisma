@@ -216,6 +216,7 @@ model ActivityLog {
 model User {
   id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name           String?
+  username       String?   @unique
   email          String?   @unique
   emailVerified  DateTime?
   image          String?
@@ -227,14 +228,20 @@ model User {
   role           String    @default("user")
 
   // Relations to the new NextAuth tables and your existing tables
-  accounts      Account[]
-  sessions      Session[]
-  ratings       UserRating[]
-  watchlist     UserWatchlist[]
-  badges        UserBadge[]
-  lists         UserList[]
-  stats_cache   UserStatsCache[]
-  activity_logs ActivityLog[]
+  accounts                Account[]
+  sessions                Session[]
+  ratings                 UserRating[]
+  watchlist               UserWatchlist[]
+  badges                  UserBadge[]
+  lists                   UserList[]
+  stats_cache             UserStatsCache[]
+  activity_logs           ActivityLog[]
+  sentFriendRequests      Friendship[]           @relation("SentFriendRequests")
+  receivedFriendRequests  Friendship[]           @relation("ReceivedFriendRequests")
+  activities              UserActivity[]
+  privacySettings         UserPrivacySettings?
+  friendPreferences       UserFriendPreference[] @relation("UserFriendPrefs")
+  targetFriendPreferences UserFriendPreference[] @relation("FriendOfUserPrefs")
 
   @@map("users")
 }
@@ -349,6 +356,7 @@ model Person {
   igdbId             Int?     @unique
   malId              Int?     @unique
   rawgId             Int?     @unique
+  mangadexId         String?  @unique
   
   name               String
   nativeName         String?
@@ -384,4 +392,93 @@ model Company {
   updatedAt     DateTime @updatedAt
 
   @@map("companies")
+}
+
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  BLOCKED
+}
+
+model Friendship {
+  id          String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sender_id   String           @db.Uuid
+  receiver_id String           @db.Uuid
+  status      FriendshipStatus @default(PENDING)
+  created_at  DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime         @default(now()) @updatedAt @db.Timestamptz(6)
+
+  sender   User @relation("SentFriendRequests", fields: [sender_id], references: [id], onDelete: Cascade)
+  receiver User @relation("ReceivedFriendRequests", fields: [receiver_id], references: [id], onDelete: Cascade)
+
+  @@unique([sender_id, receiver_id])
+  @@index([sender_id, status])
+  @@index([receiver_id, status])
+  @@map("friendships")
+}
+
+enum ActivityType {
+  RATED_MEDIA
+  WATCHLIST_STATUS
+  EPISODES_WATCHED
+  CHAPTERS_READ
+  VOLUMES_READ
+  HOURS_PLAYED
+  FAVORITED
+  CUSTOM
+}
+
+model UserActivity {
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id     String       @db.Uuid
+  type        ActivityType
+  media_id    String?
+  media_title String?
+  media_image String?
+  media_type  MediaType?
+  data        Json?        @default("{}")
+  created_at  DateTime     @default(now()) @db.Timestamptz(6)
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, created_at(sort: Desc)])
+  @@index([media_id])
+  @@map("user_activities")
+}
+
+enum VisibilityLevel {
+  PUBLIC
+  FRIENDS_ONLY
+  PRIVATE
+}
+
+model UserPrivacySettings {
+  id                   String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id              String          @unique @db.Uuid
+  profile_visibility   VisibilityLevel @default(PUBLIC)
+  ratings_visibility   VisibilityLevel @default(PUBLIC)
+  watchlist_visibility VisibilityLevel @default(PUBLIC)
+  activity_visibility  VisibilityLevel @default(PUBLIC)
+  updated_at           DateTime        @default(now()) @updatedAt @db.Timestamptz(6)
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("user_privacy_settings")
+}
+
+model UserFriendPreference {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id       String   @db.Uuid
+  friend_id     String   @db.Uuid
+  hide_activity Boolean  @default(false)
+  hide_ratings  Boolean  @default(false)
+  updated_at    DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  user   User @relation("UserFriendPrefs", fields: [user_id], references: [id], onDelete: Cascade)
+  friend User @relation("FriendOfUserPrefs", fields: [friend_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, friend_id])
+  @@index([user_id])
+  @@map("user_friend_preferences")
 }

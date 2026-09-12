@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { MediaType, WatchlistStatus } from "@prisma/client";
+import { MediaType, WatchlistStatus, ActivityType } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { PERF_WARN_THRESHOLD_MS } from "@/lib/admin-constants";
 import { authOptions } from "@/lib/auth";
+import { logUserActivity } from "@/lib/activity";
 import { enqueueJob } from "@/lib/jobs";
 import { inferMediaType } from "@/lib/media-db";
 import { timeOperation } from "@/lib/logger";
@@ -229,8 +230,9 @@ async function handleWatchlistMutation(
   }
 
   // Upsert or Update
+  let result;
   if (action === "add_or_update") {
-    return prisma.userWatchlist.upsert({
+    result = await prisma.userWatchlist.upsert({
       where: { user_id_media_id: { user_id: userId, media_id: mediaId } },
       update: {
         media_title: body.title,
@@ -268,7 +270,7 @@ async function handleWatchlistMutation(
       }
     });
   } else {
-    return prisma.userWatchlist.update({
+    result = await prisma.userWatchlist.update({
       where: { user_id_media_id: { user_id: userId, media_id: mediaId } },
       data: {
         status,
@@ -285,6 +287,66 @@ async function handleWatchlistMutation(
       }
     });
   }
+
+  // Log social activity
+  const finalTitle = body.title || existing?.media_title || result.media_title;
+  const finalImage = body.image ?? existing?.media_image ?? result.media_image;
+
+  if (episodesWatched > (existing?.episodesWatched ?? 0)) {
+    await logUserActivity({
+      userId,
+      type: ActivityType.EPISODES_WATCHED,
+      mediaId,
+      mediaTitle: finalTitle,
+      mediaImage: finalImage,
+      mediaType,
+      data: { episode: episodesWatched, count: episodesWatched - (existing?.episodesWatched ?? 0) },
+    });
+  } else if (chaptersRead > (existing?.chaptersRead ?? 0)) {
+    await logUserActivity({
+      userId,
+      type: ActivityType.CHAPTERS_READ,
+      mediaId,
+      mediaTitle: finalTitle,
+      mediaImage: finalImage,
+      mediaType,
+      data: { chapter: chaptersRead, count: chaptersRead - (existing?.chaptersRead ?? 0) },
+    });
+  } else if (volumesRead > (existing?.volumesRead ?? 0)) {
+    await logUserActivity({
+      userId,
+      type: ActivityType.VOLUMES_READ,
+      mediaId,
+      mediaTitle: finalTitle,
+      mediaImage: finalImage,
+      mediaType,
+      data: { volume: volumesRead, count: volumesRead - (existing?.volumesRead ?? 0) },
+    });
+  } else if (hoursPlayed > (existing?.hoursPlayed ?? 0.0)) {
+    await logUserActivity({
+      userId,
+      type: ActivityType.HOURS_PLAYED,
+      mediaId,
+      mediaTitle: finalTitle,
+      mediaImage: finalImage,
+      mediaType,
+      data: { hours: hoursPlayed, platform },
+    });
+  }
+
+  if (status !== existing?.status) {
+    await logUserActivity({
+      userId,
+      type: ActivityType.WATCHLIST_STATUS,
+      mediaId,
+      mediaTitle: finalTitle,
+      mediaImage: finalImage,
+      mediaType,
+      data: { status, oldStatus: existing?.status || null },
+    });
+  }
+
+  return result;
 }
 
 async function queueUserStatsUpdate(

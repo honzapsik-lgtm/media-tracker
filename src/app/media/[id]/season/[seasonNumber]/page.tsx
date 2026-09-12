@@ -1,5 +1,5 @@
 import { getSeasonEpisodes } from "@/app/actions";
-import { getTMDbDetails } from "@/lib/tmdb";
+import { getTMDbDetails, cleanStudioData } from "@/lib/tmdb";
 import RatingSlider from "@/components/RatingSlider";
 import EpisodeList from "@/components/EpisodeList";
 import Link from "next/link";
@@ -91,41 +91,49 @@ export default async function SeasonPage({
 
   episodes = await getSeasonEpisodes(tmdbId, seasonNum);
 
-  const seasons = (showDetails.seasons ?? []) as TmdbSeasonSummary[];
-  const validSeasonNumbers = seasons
+  const { getAdjustedSeasons } = await import("@/lib/anime-canon");
+  const seasons = getAdjustedSeasons(tmdbId, showDetails.seasons) as TmdbSeasonSummary[];
+  const allSeasonNumbers = seasons.map((s) => s.season_number);
+
+  if (!allSeasonNumbers.includes(seasonNum)) notFound();
+
+  const seasonMeta = seasons.find((s) => s.season_number === seasonNum);
+  const numberedSeasons = seasons
     .filter((s) => s.season_number > 0)
     .map((s) => s.season_number)
     .sort((a, b) => a - b);
 
-  if (!validSeasonNumbers.includes(seasonNum)) notFound();
-
-  const seasonMeta = seasons.find((s) => s.season_number === seasonNum);
-  nextSeasonNum = validSeasonNumbers.find((n) => n > seasonNum);
-  prevSeasonNum = validSeasonNumbers.slice().reverse().find((n) => n < seasonNum);
+  nextSeasonNum = seasonNum === 0 ? numberedSeasons[0] : numberedSeasons.find((n) => n > seasonNum);
+  prevSeasonNum = seasonNum === 0 ? undefined : numberedSeasons.slice().reverse().find((n) => n < seasonNum);
 
   seasonPoster = seasonMeta?.poster_path
     ? `https://image.tmdb.org/t/p/w500${seasonMeta.poster_path}`
     : showDetails.image;
 
-  seasonLabel = seasonMeta?.name ?? `Season ${seasonNum}`;
+  seasonLabel = seasonNum === 0 ? (seasonMeta?.name || "Specials & OVAs") : (seasonMeta?.name ?? `Season ${seasonNum}`);
   showTitle = showDetails.title;
-  seasonOverview = seasonMeta?.overview || "";
+  seasonOverview = seasonMeta?.overview || (seasonNum === 0 ? "Original Video Animations (OVAs) and specials." : "");
   seasonAirDate = seasonMeta?.air_date || "";
-  seasonEpisodeCount = seasonMeta?.episode_count ?? null;
+  seasonEpisodeCount = episodes.length || seasonMeta?.episode_count || null;
   seasonMediaId = `${id}-s${seasonNum}`;
   seasonFullTitle = `${showTitle} - ${seasonLabel}`;
   seasonDuration = showDetails.runtime || null;
   seasonTrailerUrl = showDetails.trailerUrl || null;
 
   if (showDetails.originalLanguage === "ja" && showDetails.genres?.includes("Animation")) {
-    const { fetchAnimeThemesForMedia } = await import("@/lib/jikan");
-    seasonThemeData = await fetchAnimeThemesForMedia(`${showTitle} ${seasonLabel}`, showDetails.originalTitle);
+    const { fetchAnimeThemesForSeason } = await import("@/lib/jikan");
+    seasonThemeData = await fetchAnimeThemesForSeason(showTitle, seasonNum, seasonLabel, showDetails.originalTitle, showDetails.seasons);
   }
 
   const crewCredits = showDetails.credits || [];
   if (Array.isArray(crewCredits)) {
-    primaryStaff = crewCredits.filter((c: any) => ['Director', 'Writer', 'Creator', 'Original Creator', 'Series Composition', 'Developer'].includes(c.role));
-    secondaryStaff = crewCredits.filter((c: any) => !['Director', 'Writer', 'Creator', 'Original Creator', 'Series Composition', 'Developer'].includes(c.role));
+    const PRIMARY_ROLES = [
+      'Director', 'Writer', 'Creator', 'Original Creator', 'Series Composition', 'Developer',
+      'Author', 'Artist', 'Story & Art', 'Story', 'Art', 'Mangaka', 'Illustrator', 'Original Story',
+      'Composer', 'Music'
+    ];
+    primaryStaff = crewCredits.filter((c: any) => PRIMARY_ROLES.includes(c.role));
+    secondaryStaff = crewCredits.filter((c: any) => !PRIMARY_ROLES.includes(c.role));
   }
 
   const [stats, placementRank, reviews, globalData] = await Promise.all([
@@ -178,7 +186,7 @@ export default async function SeasonPage({
             {showDetails?.watchData && (
               <WatchProviders watchData={showDetails.watchData} />
             )}
-            
+
             <AnimeThemes themeData={seasonThemeData} />
           </div>
 
@@ -239,17 +247,25 @@ export default async function SeasonPage({
             </div>
 
             {/* STUDIOS ROW */}
-            {showDetails?.studioData && showDetails.studioData.length > 0 && (
-              <div className="flex flex-wrap gap-2 mb-2">
-                <span className="text-[10px] text-blue-500 uppercase tracking-widest font-black self-center mr-2">Studio</span>
-                {showDetails.studioData.map((s: any, i: number, arr: any[]) => (
-                  <span key={s.id || s} className="flex gap-2 items-center">
-                    <span className="text-sm font-bold text-gray-200">{s.name || s}</span>
-                    {i < arr.length - 1 && <span className="text-gray-600 text-xs font-black">•</span>}
-                  </span>
-                ))}
-              </div>
-            )}
+            {(() => {
+              const studios = cleanStudioData(
+                showDetails?.studioData, 
+                showDetails?.originalLanguage === 'ja' && showDetails?.genres?.includes('Animation'), 
+                true
+              );
+              if (!studios || studios.length === 0) return null;
+              return (
+                <div className="flex flex-wrap gap-2 mb-2">
+                  <span className="text-[10px] text-blue-500 uppercase tracking-widest font-black self-center mr-2">Studio</span>
+                  {studios.map((s: any, i: number, arr: any[]) => (
+                    <span key={s.id || s} className="flex gap-2 items-center">
+                      <span className="text-sm font-bold text-gray-200">{s.name || s}</span>
+                      {i < arr.length - 1 && <span className="text-gray-600 text-xs font-black">•</span>}
+                    </span>
+                  ))}
+                </div>
+              );
+            })()}
 
             {/* DYNAMIC CREW GRID */}
             <StaffGrid 
@@ -301,8 +317,6 @@ export default async function SeasonPage({
                 </>
               )}
             </div>
-
-
 
             <h2 className="text-2xl font-bold mb-6 mt-12">Episodes</h2>
 

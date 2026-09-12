@@ -1,10 +1,10 @@
 import { getUnifiedCompanyProfile } from "@/lib/company";
-import { enqueueJob } from "@/lib/jobs";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import ExpandableText from "@/components/ExpandableText";
 import MediaCardVertical from "@/components/MediaCardVertical";
 import { UnifiedCompanyMedia } from "@/types/company";
+import BackToSearchButton from "@/components/BackToSearchButton";
 
 function PortfolioGrid({ title, items }: { title: string, items: UnifiedCompanyMedia[] }) {
   if (!items || items.length === 0) return null;
@@ -53,22 +53,11 @@ export default async function CompanyProfilePage({ params }: { params: Promise<{
     redirect(`/company/${canonicalSlug}`);
   }
 
-  // Non-blocking trigger of background sync
-  if (profile.id) {
-    enqueueJob({
-      type: "syncCompanyCrossPlatform",
-      payload: { companyId: profile.id },
-      dedupeKey: `sync-company-${profile.id}`
-    }).catch(e => console.error("Failed to enqueue syncCompanyCrossPlatform", e));
-  }
-
   return (
     <main className="min-h-screen bg-gray-950 text-white relative pb-24 selection:bg-blue-500/30">
       <div className="max-w-7xl mx-auto px-6 sm:px-8 pt-24 relative z-10 space-y-20">
         
-        <Link href="/" className="text-gray-500 hover:text-white mb-8 inline-flex items-center gap-2 font-medium transition-colors">
-          <span className="text-xl">←</span> Back to Search
-        </Link>
+        <BackToSearchButton />
 
         {/* Hero Section */}
         <section className="flex flex-col md:flex-row gap-12 lg:gap-16 items-center md:items-start">

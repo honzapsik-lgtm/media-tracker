@@ -17,6 +17,7 @@ export type UnifiedProfile = {
   malId: number | null;
   rawgId: number | null;
   rawgSlug?: string;
+  mangadexId?: string | null;
   name: string;
   nativeName: string | null;
   bio: string | null;

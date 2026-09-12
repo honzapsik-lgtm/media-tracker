@@ -52,8 +52,19 @@ export async function getSeasonEpisodes(tvId: string, seasonNumber: number) {
 
     if (!res.ok) return [];
     const data = await res.json();
+    let rawEpisodes = (data.episodes || []) as any[];
 
-    return data.episodes.map((ep: {
+    const { getCanonFinaleEpisodeNumbers, getExcludedSeason0EpisodeNumbers } = await import('@/lib/anime-canon');
+
+    // 1. If viewing Season 0 (Specials & OVAs), filter out any specials that were integrated into regular seasons
+    if (seasonNumber === 0) {
+      const excluded = getExcludedSeason0EpisodeNumbers(tvId);
+      if (excluded.length > 0) {
+        rawEpisodes = rawEpisodes.filter(ep => !excluded.includes(ep.episode_number));
+      }
+    }
+
+    const mappedEpisodes = rawEpisodes.map((ep: {
       id: number;
       name: string;
       episode_number: number;
@@ -70,8 +81,43 @@ export async function getSeasonEpisodes(tvId: string, seasonNumber: number) {
       image: ep.still_path ? `https://image.tmdb.org/t/p/w400${ep.still_path}` : null,
       air_date: ep.air_date,
       runtime: ep.runtime,
-      globalScore: ep.vote_average ? Math.round(ep.vote_average * 10) : 0
+      globalScore: ep.vote_average ? Math.round(ep.vote_average * 10) : 0,
+      isFinaleSpecial: false
     }));
+
+    // 2. If this season concludes with canon finale specials from Season 0 (e.g. AoT Season 4)
+    const canonSpecials = getCanonFinaleEpisodeNumbers(tvId, seasonNumber);
+    if (canonSpecials.length > 0) {
+      try {
+        const s0Res = await fetch(
+          `https://api.themoviedb.org/3/tv/${tvId}/season/0?api_key=${TMDB_API_KEY}&language=en-US`,
+          { cache: 'force-cache' }
+        );
+        if (s0Res.ok) {
+          const s0Data = await s0Res.json();
+          const s0Eps = (s0Data.episodes || []) as any[];
+          const matchingSpecials = s0Eps.filter(ep => canonSpecials.includes(ep.episode_number));
+
+          matchingSpecials.forEach((ep) => {
+            mappedEpisodes.push({
+              id: ep.id,
+              name: ep.name,
+              episode_number: mappedEpisodes.length + 1,
+              overview: ep.overview,
+              image: ep.still_path ? `https://image.tmdb.org/t/p/w400${ep.still_path}` : null,
+              air_date: ep.air_date,
+              runtime: ep.runtime,
+              globalScore: ep.vote_average ? Math.round(ep.vote_average * 10) : 0,
+              isFinaleSpecial: true
+            });
+          });
+        }
+      } catch (err) {
+        console.warn(`[getSeasonEpisodes] Failed to append canon specials for show ${tvId}:`, err);
+      }
+    }
+
+    return mappedEpisodes;
   } catch (error) {
     console.error("Failed to fetch episodes:", error);
     return [];

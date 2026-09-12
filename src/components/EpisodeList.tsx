@@ -11,6 +11,7 @@ interface Episode {
   image?: string | null;
   air_date?: string;
   runtime?: number;
+  isFinaleSpecial?: boolean;
 }
 
 interface EpisodeListProps {
@@ -64,12 +65,17 @@ export default function EpisodeList({ mediaId, seasonNumber, episodes }: Episode
             className="bg-gray-900/40 rounded-lg border border-gray-800/60 hover:border-blue-500 hover:bg-gray-800/80 transition-colors flex items-center justify-between p-3 group shadow-sm"
           >
             <div className="flex items-center gap-4 min-w-0">
-              <span className="text-gray-500 font-black text-sm shrink-0 w-12 text-center group-hover:text-blue-500 transition-colors">
+              <span className={`font-black text-sm shrink-0 w-12 text-center transition-colors ${ep.isFinaleSpecial ? 'text-red-400' : 'text-gray-500 group-hover:text-blue-500'}`}>
                 EP {ep.episode_number}
               </span>
               <p className="font-bold text-sm text-gray-200 group-hover:text-white transition-colors truncate">
                 {ep.name}
               </p>
+              {ep.isFinaleSpecial && (
+                <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-red-950/80 border border-red-800/80 text-red-400 shrink-0 hidden sm:inline-block">
+                  Finale Special
+                </span>
+              )}
             </div>
             
             <div className="flex items-center gap-3 shrink-0 ml-4">

@@ -166,7 +166,7 @@ export async function getTMDbDetails(id: string, type: 'movie' | 'tv') {
     ? data.aggregate_credits.cast
     : (data.credits?.cast || []);
 
-  const fullCast = rawCast.slice(0, 50).map((actor: any) => {
+  const fullCast = rawCast.map((actor: any) => {
     const charName = (actor.roles && actor.roles.length > 0)
       ? actor.roles.map((r: any) => r.character).filter(Boolean).slice(0, 2).join(' / ')
       : actor.character || 'Unknown Role';
@@ -210,8 +210,8 @@ export async function getTMDbDetails(id: string, type: 'movie' | 'tv') {
 
   if (data.created_by) {
     data.created_by.forEach((c: any) => {
-      if (!credits.find(existing => existing.id === `tmdb-${c.id}` && existing.role === 'Creator')) {
-        credits.push({
+      if (!credits.find(existing => existing.id === `tmdb-${c.id}` && (existing.role === 'Creator' || existing.role === 'Original Creator'))) {
+        credits.unshift({
           id: `tmdb-${c.id}`,
           name: c.name,
           role: 'Creator',
@@ -248,10 +248,7 @@ export async function getTMDbDetails(id: string, type: 'movie' | 'tv') {
     seasons: data.seasons || null,
     credits,
     watchData,
-    studioData: [
-      ...(data.production_companies || []).map((c: any) => ({ id: `tmdb-${c.id}`, name: c.name })),
-      ...(data.networks || []).map((n: any) => ({ id: `tmdbnet-${n.id}`, name: n.name }))
-    ]
+    studioData: getCleanStudios(data, type),
   };
 
   const expiresAt = new Date();
@@ -308,4 +305,76 @@ export async function getTMDbSeasonData(tmdbShowId: number, seasonNumber: number
     air_date: episode.air_date,
     runtime: episode.runtime
   }));
+}
+
+export function getCleanStudios(data: any, type: 'movie' | 'tv'): { id: string; name: string }[] {
+  const isAnime = (data.original_language === 'ja') && data.genres?.some((g: any) => g.name === 'Animation');
+  const networks = data.networks || [];
+  const prodCompanies = data.production_companies || [];
+
+  let rawList: { id: string; name: string }[] = [];
+
+  if (type === 'tv' && isAnime) {
+    // For anime TV shows: production_companies contain the actual animation studios (first 1-3).
+    // Broadcast networks in Japan (MBS, Tokyo MX, NHK G) are TV channels, not animation studios.
+    const networkNames = new Set(networks.map((n: any) => (n.name || '').toLowerCase().trim()));
+    const validProd = prodCompanies.filter((c: any) => !networkNames.has((c.name || '').toLowerCase().trim()));
+    rawList = validProd.slice(0, 3).map((c: any) => ({ id: `tmdb-${c.id}`, name: c.name }));
+  } else if (type === 'tv' && networks.length > 0) {
+    // For Western/other TV shows: networks (HBO, AMC, Netflix, Apple TV+) are the primary identity
+    rawList = networks.slice(0, 2).map((n: any) => ({ id: `tmdbnet-${n.id}`, name: n.name }));
+  } else {
+    // For movies or TV shows without networks: top 1-2 production companies
+    rawList = prodCompanies.slice(0, 2).map((c: any) => ({ id: `tmdb-${c.id}`, name: c.name }));
+  }
+
+  // Deduplicate by normalized alphanumeric name
+  const seen = new Set<string>();
+  const result: { id: string; name: string }[] = [];
+
+  for (const item of rawList) {
+    if (!item.name) continue;
+    const norm = item.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!seen.has(norm)) {
+      seen.add(norm);
+      result.push(item);
+    }
+  }
+
+  return result;
+}
+
+export function cleanStudioData(studios: any[], isAnime: boolean, isTv: boolean): any[] {
+  if (!studios || !Array.isArray(studios) || studios.length === 0) return [];
+
+  // Deduplicate by normalized name
+  const seen = new Set<string>();
+  const deduplicated: any[] = [];
+  for (const s of studios) {
+    const name = s.name || s;
+    if (!name) continue;
+    const norm = String(name).toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!seen.has(norm)) {
+      seen.add(norm);
+      deduplicated.push(s);
+    }
+  }
+
+  // If it's a TV show that isn't anime, prefer networks (id starting with tmdbnet-)
+  if (isTv && !isAnime) {
+    const netOnly = deduplicated.filter(s => s.id && String(s.id).startsWith('tmdbnet-'));
+    if (netOnly.length > 0) {
+      return netOnly.slice(0, 2);
+    }
+  }
+
+  // If anime TV show, exclude network stations (tmdbnet-) and take top 3 animation studios
+  if (isTv && isAnime) {
+    const prodOnly = deduplicated.filter(s => !s.id || !String(s.id).startsWith('tmdbnet-'));
+    if (prodOnly.length > 0) {
+      return prodOnly.slice(0, 3);
+    }
+  }
+
+  return deduplicated.slice(0, 3);
 }

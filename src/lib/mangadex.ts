@@ -203,7 +203,7 @@ export async function getMangaDexDetails(mangadexId: string) {
 
     const authors = manga.relationships?.filter((r: any) => r.type === 'author' || r.type === 'artist') || [];
     const staff = authors.map((a: any) => ({
-      id: a.id,
+      id: `mangadex-${a.id}`,
       name: a.attributes?.name || "Unknown",
       role: a.type === 'author' ? 'Author' : 'Artist',
       image: null

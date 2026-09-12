@@ -1,8 +1,9 @@
 import ExpandableCast from "@/components/ExpandableCast";
-import { getTMDbDetails } from "@/lib/tmdb";
+import { getTMDbDetails, cleanStudioData } from "@/lib/tmdb";
 import { getGameDetails, getGameCrew, getRAWGGameDetails, resolveRAWGToIGDB } from "@/lib/games";
 
 import RatingSlider from "@/components/RatingSlider";
+import FriendsRatingSection from "@/components/FriendsRatingSection";
 import TextReviewEditor from "@/components/TextReviewEditor";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
@@ -14,6 +15,7 @@ import ExpandableAniListCast from "@/components/ExpandableAniListCast";
 import { StaffGrid } from '@/components/StaffGrid';
 import WatchProviders from "@/components/WatchProviders";
 import AnimeThemes from "@/components/AnimeThemes";
+import BackToSearchButton from "@/components/BackToSearchButton";
 import { prisma } from "@/lib/prisma";
 import { CRITERIA_CONFIG } from "@/lib/constants";
 import { getMasterCrew, getMasterStudios, getMasterCast } from "@/lib/credits-parser";
@@ -130,7 +132,7 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
 
         const [manga, themes] = await Promise.all([
           searchRelatedManga(mediaDetails.title).catch(() => null),
-          fetchAnimeThemesForMedia(mediaDetails.title, mediaDetails.originalTitle).catch(() => null),
+          fetchAnimeThemesForMedia(mediaDetails.title, mediaDetails.originalTitle, tmdbType || mediaDetails.type, mediaDetails.seasons).catch(() => null),
         ]);
         relatedManga = manga;
         animeThemes = themes;
@@ -365,7 +367,8 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
 
   const PRIMARY_ROLES = [
     'Director', 'Writer', 'Creator', 'Original Creator', 'Series Composition', 'Developer',
-    'Author', 'Artist', 'Story & Art', 'Story', 'Art', 'Mangaka', 'Illustrator', 'Original Story'
+    'Author', 'Artist', 'Story & Art', 'Story', 'Art', 'Mangaka', 'Illustrator', 'Original Story',
+    'Composer', 'Music'
   ];
 
   if (provider === 'rawg' || provider === 'igdb') {
@@ -527,15 +530,58 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
       spinoffItems = franchiseRoot.inverseRelated?.filter((m: any) => m.isMainStoryline === false) || [];
     }
   } else if (mediaDetails.type === "show" && mediaDetails.seasons) {
-    timelineItems = (mediaDetails.seasons as any[]).filter((s) => s.season_number > 0).map((s) => ({
+    const { getAdjustedSeasons, getCanonMoviesForShow } = await import('@/lib/anime-canon');
+    const adjustedSeasons = getAdjustedSeasons(provider === 'tmdb' ? parts[2] : mediaId, mediaDetails.seasons);
+
+    const canonSeasons = adjustedSeasons.filter((s) => s.season_number > 0).map((s) => ({
       id: s.id.toString(),
       title: s.name,
       episode_count: s.episode_count,
-      _sortTime: Infinity,
+      _sortTime: s.season_number,
       link: `/media/${mediaId}/season/${s.season_number}`,
       isMovie: false,
       statId: `${mediaId}-s${s.season_number}`,
     }));
+
+    const canonMovies = getCanonMoviesForShow(provider === 'tmdb' ? parts[2] : mediaId);
+    timelineItems = [...canonSeasons];
+    for (const cm of canonMovies) {
+      timelineItems.push({
+        id: cm.id,
+        title: cm.title,
+        episode_count: 'Feature',
+        _sortTime: cm.orderAfterSeason + 0.5,
+        link: `/media/${cm.id}`,
+        isMovie: true,
+        statId: cm.id,
+      });
+    }
+    timelineItems.sort((a, b) => a._sortTime - b._sortTime);
+
+    // Place Season 0 (Specials & OVAs) under Related media
+    const season0 = adjustedSeasons.find(s => s.season_number === 0);
+    if (season0 && season0.episode_count > 0) {
+      spinoffItems.push({
+        id: `${mediaId}-s0`,
+        title: season0.name || "Specials & OVAs",
+        type: "OVA",
+        relationLabel: "OVAs & Specials",
+        link: `/media/${mediaId}/season/0`,
+        episode_count: season0.episode_count
+      });
+    }
+
+    // Add franchise spin-off if Attack on Titan
+    if (provider === 'tmdb' && parts[2] === '1429') {
+      spinoffItems.push({
+        id: 'tmdb-tv-64196',
+        title: 'Attack on Titan: Junior High',
+        type: 'SHOW',
+        relationLabel: 'Spin-off',
+        link: '/media/tmdb-tv-64196',
+        episode_count: 12
+      });
+    }
   }
 
   let totalEpisodes = 0;
@@ -543,13 +589,9 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
   let totalRelated = 0;
 
   if (mediaDetails.type === "show") {
-    if (provider === "tmdb" && mediaDetails.seasons) {
-      totalEpisodes = (mediaDetails.seasons as any[]).filter(s => s.season_number > 0).reduce((sum, s) => sum + (s.episode_count || 0), 0);
-    } else if (timelineItems.length > 0) {
-      totalEpisodes = timelineItems.filter(i => !i.isMovie).reduce((sum, item) => sum + (typeof item.episode_count === 'number' ? item.episode_count : 0), 0);
-      totalMovies = timelineItems.filter(i => i.isMovie).length;
-      totalRelated = spinoffItems.length;
-    }
+    totalEpisodes = timelineItems.filter(i => !i.isMovie).reduce((sum, item) => sum + (typeof item.episode_count === 'number' ? item.episode_count : 0), 0);
+    totalMovies = timelineItems.filter(i => i.isMovie).length;
+    totalRelated = spinoffItems.length;
   }
 
   return (
@@ -562,7 +604,7 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
       )}
       
       <div className="max-w-7xl mx-auto px-8 pt-24 relative z-10">
-        <Link href="/" className="text-gray-400 hover:text-white mb-8 inline-block font-semibold">← Back to Search</Link>
+        <BackToSearchButton />
         
         <div className="flex flex-col md:flex-row gap-10 mb-16">
           <div className="w-full md:w-1/3 lg:w-1/4 shrink-0 space-y-6">
@@ -572,6 +614,7 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
               <div className="w-full aspect-[2/3] bg-gray-900 rounded-2xl border border-gray-800 flex items-center justify-center">No Image</div>
             )}
             <RatingSlider mediaId={mediaId} mediaType={mediaTypeKey} mediaTitle={mediaDetails.title} mediaImage={mediaDetails.image} mediaReleaseDate={mediaDetails.releaseDate} />
+            <FriendsRatingSection mediaId={mediaId} />
 
             {/* WHERE TO STREAM */}
             {(localDbMedia?.watchData || mediaDetails?.watchData) && (
@@ -614,6 +657,7 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
             {(animeThemes || localDbMedia?.themeData) && (
               <AnimeThemes themeData={animeThemes || localDbMedia?.themeData} />
             )}
+
           </div>
 
           <div className="flex-1">
@@ -747,23 +791,31 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
             )}
 
             {/* STUDIOS ROW */}
-            {mediaDetails.studioData && mediaDetails.studioData.length > 0 && (
-              <div className="flex flex-wrap gap-2 mb-2">
-                <span className="text-[10px] text-blue-500 uppercase tracking-widest font-black self-center mr-2">Studio</span>
-                {mediaDetails.studioData.map((s: any, i: number, arr: any[]) => (
-                  <span key={s.id || s} className="flex gap-2 items-center">
-                    {s.id ? (
-                      <Link href={`/company/${s.id.toString().includes('-') ? s.id : `anilist-${s.id}`}`} className="text-sm font-bold text-gray-200 hover:text-blue-400 transition-colors">
-                        {s.name || s}
-                      </Link>
-                    ) : (
-                      <span className="text-sm font-bold text-gray-200">{s.name || s}</span>
-                    )}
-                    {i < arr.length - 1 && <span className="text-gray-600 text-xs font-black">•</span>}
-                  </span>
-                ))}
-              </div>
-            )}
+            {(() => {
+              const studios = cleanStudioData(
+                mediaDetails.studioData, 
+                (mediaDetails.originalLanguage === 'ja') && mediaDetails.genres?.includes('Animation'), 
+                mediaTypeKey === 'show'
+              );
+              if (!studios || studios.length === 0) return null;
+              return (
+                <div className="flex flex-wrap gap-2 mb-2">
+                  <span className="text-[10px] text-blue-500 uppercase tracking-widest font-black self-center mr-2">Studio</span>
+                  {studios.map((s: any, i: number, arr: any[]) => (
+                    <span key={s.id || s} className="flex gap-2 items-center">
+                      {s.id ? (
+                        <Link href={`/company/${s.id.toString().includes('-') ? s.id : `anilist-${s.id}`}`} className="text-sm font-bold text-gray-200 hover:text-blue-400 transition-colors">
+                          {s.name || s}
+                        </Link>
+                      ) : (
+                        <span className="text-sm font-bold text-gray-200">{s.name || s}</span>
+                      )}
+                      {i < arr.length - 1 && <span className="text-gray-600 text-xs font-black">•</span>}
+                    </span>
+                  ))}
+                </div>
+              );
+            })()}
 
             {/* DYNAMIC CREW GRID */}
             {isSyncing && mediaTypeKey !== "manga" ? (
@@ -875,25 +927,6 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
                   )
                 )}
 
-                  {spinoffItems.length > 0 && (
-                    <div>
-                      <h2 className="text-2xl font-bold mb-6 text-gray-400">Related</h2>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        {spinoffItems.map((m: any) => (
-                          <Link key={m.id} href={`/media/${m.id}`} className={`bg-gray-950 p-4 rounded-xl border border-gray-800 hover:border-gray-600 transition-colors block text-center relative pt-8`}>
-                            {m.relationLabel && (
-                              <div className="absolute top-2 left-2 bg-black/55 border border-gray-800/80 text-gray-400 px-1.5 py-0.5 rounded text-[9px] uppercase font-semibold">
-                                {m.relationLabel}
-                              </div>
-                            )}
-                            <p className="font-bold text-sm text-gray-300 line-clamp-2">{m.title || 'Unknown'}</p>
-                            <p className="text-xs text-gray-500 mt-2 uppercase font-black">{m.type}</p>
-                          </Link>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
                 {relatedManga && (
                   <div>
                     <h2 className="text-2xl font-bold mb-6 text-gray-400">Source Manga</h2>
@@ -913,6 +946,27 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
                           <p className="text-xs text-gray-500 mt-1">Read on MangaDex →</p>
                         </div>
                       </Link>
+                    </div>
+                  </div>
+                )}
+
+                {spinoffItems.length > 0 && (
+                  <div>
+                    <h2 className="text-2xl font-bold mb-6 text-gray-400">Related</h2>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      {spinoffItems.map((m: any) => (
+                        <Link key={m.id} href={m.link || `/media/${m.id}`} className={`bg-gray-950 p-4 rounded-xl border border-gray-800 hover:border-gray-600 transition-colors block text-center relative pt-8`}>
+                          {m.relationLabel && (
+                            <div className="absolute top-2 left-2 bg-black/55 border border-gray-800/80 text-gray-400 px-1.5 py-0.5 rounded text-[9px] uppercase font-semibold">
+                              {m.relationLabel}
+                            </div>
+                          )}
+                          <p className="font-bold text-sm text-gray-300 line-clamp-2">{m.title || 'Unknown'}</p>
+                          <p className="text-xs text-gray-500 mt-2 uppercase font-black">
+                            {m.episode_count ? `${m.episode_count} Episodes` : m.type}
+                          </p>
+                        </Link>
+                      ))}
                     </div>
                   </div>
                 )}

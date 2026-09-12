@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Shield } from "lucide-react";
+import PrivacySettingsModal from "@/components/PrivacySettingsModal";
 
 // Shared dictionary so the header knows the names/icons of the badges
 export const BADGE_DICTIONARY = [
@@ -18,6 +20,7 @@ interface ProfileUser {
   id: string;
   email: string | null;
   name: string | null;
+  username?: string | null;
   image: string | null;
   created_at: Date | null;
   realName: string | null;
@@ -39,6 +42,8 @@ interface UserBadge {
 export default function ProfileHeader({ user, ratings, userBadges = [] }: { user: ProfileUser; ratings: ProfileRating[]; userBadges?: UserBadge[] }) {
   const router = useRouter();
   const [isEditing, setIsEditing] = useState(false);
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+  const [nickname, setNickname] = useState(user.username || "");
   const [realName, setRealName] = useState(user.realName || "");
   const [stateRegion, setStateRegion] = useState(user.stateRegion || "");
   const [country, setCountry] = useState(user.country || "");
@@ -47,6 +52,21 @@ export default function ProfileHeader({ user, ratings, userBadges = [] }: { user
 
   const handleSave = async () => {
     setIsSaving(true);
+    const cleanNick = nickname.trim().replace(/^@/, "");
+    if (cleanNick && cleanNick !== user.username) {
+      const uRes = await fetch("/api/profile/username", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: cleanNick }),
+      });
+      if (!uRes.ok) {
+        const uData = await uRes.json().catch(() => ({}));
+        alert(`Nickname Error: ${uData.error || "Failed to update nickname"}`);
+        setIsSaving(false);
+        return;
+      }
+    }
+
     const res = await fetch("/api/profile", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -57,6 +77,7 @@ export default function ProfileHeader({ user, ratings, userBadges = [] }: { user
     if (res.ok) {
       setIsEditing(false);
       router.refresh();
+      window.location.reload();
     } else {
       const data = await res.json().catch(() => ({}));
       alert(`Update Error: ${data.error || "Something went wrong."}`);
@@ -94,12 +115,21 @@ export default function ProfileHeader({ user, ratings, userBadges = [] }: { user
       <div className="flex-1 flex items-start gap-8 bg-gray-900/50 p-6 rounded-2xl border border-gray-800 relative group">
         
         {!isEditing && (
-          <button 
-            onClick={() => setIsEditing(true)}
-            className="absolute top-4 right-4 text-xs font-bold px-3 py-1.5 bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors border border-gray-700"
-          >
-            Edit Profile
-          </button>
+          <div className="absolute top-4 right-4 flex items-center gap-2">
+            <button
+              onClick={() => setShowPrivacyModal(true)}
+              className="text-xs font-bold px-3 py-1.5 bg-gray-800 text-purple-400 hover:text-white hover:bg-purple-600/30 rounded-lg transition-colors border border-purple-500/30 flex items-center gap-1.5"
+            >
+              <Shield className="w-3.5 h-3.5" />
+              Privacy Settings
+            </button>
+            <button 
+              onClick={() => setIsEditing(true)}
+              className="text-xs font-bold px-3 py-1.5 bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors border border-gray-700"
+            >
+              Edit Profile
+            </button>
+          </div>
         )}
 
         {/* Left Sub-Column: Avatar & Date */}
@@ -125,6 +155,20 @@ export default function ProfileHeader({ user, ratings, userBadges = [] }: { user
         <div className="flex flex-col justify-center py-2 flex-1 pr-16 min-h-[128px]">
           {isEditing ? (
             <div className="space-y-3 w-full max-w-md">
+              <div>
+                <label className="text-[11px] font-bold text-gray-400 block mb-1">Unique Nickname</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-mono text-sm">@</span>
+                  <input
+                    type="text"
+                    placeholder="nickname"
+                    value={nickname}
+                    onChange={(e) => setNickname(e.target.value.toLowerCase().replace(/[^a-z0-9_.-]/g, ""))}
+                    className="w-full pl-7 bg-gray-950 border border-gray-700 rounded p-2 text-sm text-white font-mono focus:border-purple-500 outline-none"
+                  />
+                </div>
+              </div>
+
               <div className="flex gap-2">
                 <input type="text" placeholder="Real Name (Optional)" value={realName} onChange={(e) => setRealName(e.target.value)} className="w-1/2 bg-gray-950 border border-gray-700 rounded p-2 text-sm text-white" />
                 <input type="text" placeholder="State / Region" value={stateRegion} onChange={(e) => setStateRegion(e.target.value)} className="w-1/4 bg-gray-950 border border-gray-700 rounded p-2 text-sm text-white" />
@@ -157,7 +201,12 @@ export default function ProfileHeader({ user, ratings, userBadges = [] }: { user
             </div>
           ) : (
             <>
-              <h1 className="text-3xl font-black mb-1">{username}</h1>
+              <h1 className="text-3xl font-black mb-0.5">{username}</h1>
+              {user.username && (
+                <p className="text-sm font-mono text-purple-400 font-bold mb-2">
+                  @{user.username}
+                </p>
+              )}
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-xs font-mono text-gray-500 bg-gray-950 px-2 py-1 rounded border border-gray-800">
                   {user.id}
@@ -228,6 +277,11 @@ export default function ProfileHeader({ user, ratings, userBadges = [] }: { user
           )}
         </div>
       </div>
+
+      <PrivacySettingsModal
+        isOpen={showPrivacyModal}
+        onClose={() => setShowPrivacyModal(false)}
+      />
     </div>
   );
 }

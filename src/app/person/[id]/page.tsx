@@ -1,5 +1,4 @@
 import { getUnifiedPersonProfile } from "@/lib/person";
-import { enqueueJob } from "@/lib/jobs";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import ExpandableText from "@/components/ExpandableText";
@@ -8,6 +7,7 @@ import Carousel from "@/components/Carousel";
 import { getMediaStatsMap, getListRankMap } from "@/lib/media-db";
 import { UnifiedCredit } from "@/types/person";
 import PersonCredits from "@/components/PersonCredits";
+import BackToSearchButton from "@/components/BackToSearchButton";
 
 export default async function PersonProfilePage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = await params;
@@ -20,6 +20,8 @@ export default async function PersonProfilePage({ params }: { params: Promise<{ 
   let canonicalSlug = personSlug;
   if (profile.tmdbId) {
     canonicalSlug = `tmdb-${profile.tmdbId}`;
+  } else if (profile.mangadexId) {
+    canonicalSlug = `mangadex-${profile.mangadexId}`;
   } else if (profile.anilistId) {
     canonicalSlug = `anilist-${profile.anilistId}`;
   } else if (profile.igdbId) {
@@ -30,15 +32,6 @@ export default async function PersonProfilePage({ params }: { params: Promise<{ 
 
   if (personSlug !== canonicalSlug) {
     redirect(`/person/${canonicalSlug}`);
-  }
-
-  // Non-blocking trigger of background sync
-  if (profile.id) {
-    enqueueJob({
-      type: "syncPersonCrossPlatform",
-      payload: { personId: profile.id },
-      dedupeKey: `sync-person-${profile.id}`
-    }).catch(e => console.error("Failed to enqueue syncPersonCrossPlatform", e));
   }
 
   // "Known For" horizontal carousel: top 6 performing items
@@ -92,9 +85,7 @@ export default async function PersonProfilePage({ params }: { params: Promise<{ 
     <main className="min-h-screen bg-gray-950 text-white relative pb-24 selection:bg-blue-500/30">
       <div className="max-w-7xl mx-auto px-6 sm:px-8 pt-24 relative z-10 space-y-20">
         
-        <Link href="/" className="text-gray-500 hover:text-white mb-8 inline-flex items-center gap-2 font-medium transition-colors">
-          <span className="text-xl">←</span> Back to Search
-        </Link>
+        <BackToSearchButton />
 
         {/* Hero Section */}
         <section className="flex flex-col md:flex-row gap-12 lg:gap-16">

@@ -3,6 +3,7 @@ import { Providers } from "@/components/Providers";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
+import UsernamePromptModal from "@/components/UsernamePromptModal";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -29,6 +30,7 @@ export default function RootLayout({
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased bg-gray-950 text-white min-h-screen`}>
         <Providers>
           <Navbar />
+          <UsernamePromptModal />
           <div className="pt-16">{children}</div>
         </Providers>
       </body>

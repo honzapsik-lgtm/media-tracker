@@ -6,14 +6,32 @@ import { getIGDBToken } from '@/lib/games';
 
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
 
-export function parsePersonSlug(slug: string): [string, number] | null {
-  const providerMatch = slug.match(/^(tmdb|anilist|igdb|mal|rawg)(?:-[a-z]+)?-(\d+)$/i);
+export function parsePersonSlug(slug: string): [string, string] | null {
+  if (!slug) return null;
+  const lower = slug.toLowerCase().trim();
+
+  // MangaDex with prefix: mangadex-00000000-0000-0000-0000-000000000000
+  const mdPrefixMatch = lower.match(/^mangadex-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i);
+  if (mdPrefixMatch) {
+    return ['mangadex', mdPrefixMatch[1]];
+  }
+
+  // Bare UUID (MangaDex)
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(lower)) {
+    return ['mangadex', lower];
+  }
+
+  // Provider with numeric ID: tmdb-1234, igdb-5678, rawg-9012, anilist-3456
+  const providerMatch = lower.match(/^(tmdb|anilist|igdb|mal|rawg)(?:-[a-z]+)?-(\d+)$/i);
   if (providerMatch) {
-    return [providerMatch[1].toLowerCase(), parseInt(providerMatch[2], 10)];
+    return [providerMatch[1], providerMatch[2]];
   }
-  if (/^\d+$/.test(slug)) {
-    return ['tmdb', parseInt(slug, 10)];
+
+  // Bare integer (TMDb)
+  if (/^\d+$/.test(lower)) {
+    return ['tmdb', lower];
   }
+
   return null;
 }
 
@@ -21,14 +39,15 @@ export async function getUnifiedPersonProfile(slug: string): Promise<UnifiedProf
   const parsed = parsePersonSlug(slug);
   if (!parsed) return null;
 
-  const [provider, numericId] = parsed;
-  
-  let tmdbId: number | null = provider === 'tmdb' ? numericId : null;
-  let anilistId: number | null = provider === 'anilist' ? numericId : null;
-  let igdbId: number | null = provider === 'igdb' ? numericId : null;
-  let rawgId: number | null = provider === 'rawg' ? numericId : null;
+  const [provider, rawId] = parsed;
 
-  if (!tmdbId && !anilistId && !igdbId && !rawgId) return null;
+  const tmdbId = provider === 'tmdb' ? parseInt(rawId, 10) : null;
+  const anilistId = provider === 'anilist' ? parseInt(rawId, 10) : null;
+  const igdbId = provider === 'igdb' ? parseInt(rawId, 10) : null;
+  const rawgId = provider === 'rawg' ? parseInt(rawId, 10) : null;
+  const mangadexId = provider === 'mangadex' ? rawId : null;
+
+  if (!tmdbId && !anilistId && !igdbId && !rawgId && !mangadexId) return null;
 
   // 1. Check DB first
   const dbPerson = await prisma.person.findFirst({
@@ -38,6 +57,7 @@ export async function getUnifiedPersonProfile(slug: string): Promise<UnifiedProf
         ...(anilistId ? [{ anilistId }] : []),
         ...(igdbId ? [{ igdbId }] : []),
         ...(rawgId ? [{ rawgId }] : []),
+        ...(mangadexId ? [{ mangadexId }] : []),
       ]
     }
   });
@@ -52,6 +72,7 @@ export async function getUnifiedPersonProfile(slug: string): Promise<UnifiedProf
         igdbId: dbPerson.igdbId,
         malId: dbPerson.malId,
         rawgId: dbPerson.rawgId,
+        mangadexId: dbPerson.mangadexId,
         name: dbPerson.name,
         nativeName: dbPerson.nativeName,
         bio: dbPerson.biography,
@@ -64,16 +85,18 @@ export async function getUnifiedPersonProfile(slug: string): Promise<UnifiedProf
     }
   }
 
-  // 2. Fetch fresh data
+  // 2. Fetch fresh data from provider
   let fetchedData: UnifiedProfile | null = null;
   if (tmdbId) {
     fetchedData = await fetchTMDbPerson(tmdbId);
-  } else if (anilistId) {
-    fetchedData = await fetchAniListPerson(anilistId);
+  } else if (mangadexId) {
+    fetchedData = await fetchMangaDexPerson(mangadexId);
   } else if (igdbId) {
     fetchedData = await fetchIGDBPerson(igdbId);
   } else if (rawgId) {
     fetchedData = await fetchRAWGPerson(rawgId);
+  } else if (anilistId) {
+    fetchedData = await fetchAniListPerson(anilistId);
   }
 
   if (!fetchedData) return null;
@@ -93,6 +116,7 @@ export async function getUnifiedPersonProfile(slug: string): Promise<UnifiedProf
         knownForDepartment: fetchedData.knownForDepartment,
         mergedCredits: fetchedData.credits as any,
         rawgId: fetchedData.rawgId ?? dbPerson.rawgId,
+        mangadexId: fetchedData.mangadexId ?? dbPerson.mangadexId,
       }
     });
   } else {
@@ -103,6 +127,7 @@ export async function getUnifiedPersonProfile(slug: string): Promise<UnifiedProf
         igdbId: fetchedData.igdbId,
         malId: fetchedData.malId,
         rawgId: fetchedData.rawgId,
+        mangadexId: fetchedData.mangadexId,
         name: fetchedData.name,
         nativeName: fetchedData.nativeName,
         biography: fetchedData.bio,
@@ -208,6 +233,103 @@ export async function fetchTMDbPerson(id: number): Promise<UnifiedProfile | null
   };
 }
 
+export async function fetchMangaDexPerson(authorId: string): Promise<UnifiedProfile | null> {
+  const authorRes = await timeProviderFetch({
+    provider: 'mangadex',
+    cacheId: `mangadex-author-${authorId}`,
+    operation: 'mangadex.author',
+    fetcher: () => fetch(`https://api.mangadex.org/author/${authorId}`, { next: { revalidate: 3600 } })
+  });
+
+  if (!authorRes.ok) return null;
+  const authorDetailsJson = await authorRes.json();
+  const authorData = authorDetailsJson.data;
+  if (!authorData) return null;
+
+  // Fetch manga authored or drawn by this creator in parallel (MangaDex uses AND if both query params are passed together)
+  const [authorMangaRes, artistMangaRes] = await Promise.all([
+    timeProviderFetch({
+      provider: 'mangadex',
+      cacheId: `mangadex-author-manga-${authorId}`,
+      operation: 'mangadex.author_manga',
+      fetcher: () => fetch(`https://api.mangadex.org/manga?authors[]=${authorId}&includes[]=cover_art&order[relevance]=desc&limit=100`, { next: { revalidate: 3600 } })
+    }),
+    timeProviderFetch({
+      provider: 'mangadex',
+      cacheId: `mangadex-artist-manga-${authorId}`,
+      operation: 'mangadex.artist_manga',
+      fetcher: () => fetch(`https://api.mangadex.org/manga?artists[]=${authorId}&includes[]=cover_art&order[relevance]=desc&limit=100`, { next: { revalidate: 3600 } })
+    }),
+  ]);
+
+  const crew: UnifiedCredit[] = [];
+  const seenMedia = new Set<string>();
+
+  const authorWorksJson = authorMangaRes.ok ? await authorMangaRes.json() : { data: [] };
+  const artistWorksJson = artistMangaRes.ok ? await artistMangaRes.json() : { data: [] };
+  const mangaList = [...(authorWorksJson.data || []), ...(artistWorksJson.data || [])];
+
+  for (const manga of mangaList) {
+    const mediaId = `mangadex-${manga.id}`;
+    if (seenMedia.has(mediaId)) continue;
+    seenMedia.add(mediaId);
+
+    const titles = manga.attributes?.title || {};
+    const title = titles.en || titles['ja-ro'] || Object.values(titles)[0] || 'Unknown Title';
+
+    const coverRel = manga.relationships?.find((r: any) => r.type === 'cover_art');
+    const fileName = coverRel?.attributes?.fileName;
+    const poster = fileName ? `https://uploads.mangadex.org/covers/${manga.id}/${fileName}.512.jpg` : null;
+
+    const year = manga.attributes?.year || (manga.attributes?.createdAt ? parseInt(manga.attributes.createdAt.substring(0, 4), 10) : null);
+
+    crew.push({
+      mediaId,
+      mediaType: 'MANGA',
+      title,
+      poster,
+      releaseYear: year || null,
+      role: 'Story & Art',
+      isVoiceRole: false,
+      characterImage: null
+    });
+  }
+
+  // Sort crew by releaseYear descending
+  crew.sort((a, b) => (b.releaseYear || 0) - (a.releaseYear || 0));
+
+  const bioObj = authorData.attributes?.biography;
+  let bio: string | null = null;
+  if (bioObj) {
+    if (typeof bioObj === 'string') {
+      bio = bioObj;
+    } else if (typeof bioObj === 'object') {
+      bio = bioObj.en || (Object.values(bioObj)[0] as string) || null;
+    }
+  }
+
+  return {
+    id: `mangadex-${authorId}`,
+    tmdbId: null,
+    anilistId: null,
+    igdbId: null,
+    malId: null,
+    rawgId: null,
+    mangadexId: authorId,
+    name: authorData.attributes?.name || 'Unknown',
+    nativeName: null,
+    bio,
+    profileImage: authorData.attributes?.imageUrl || null,
+    birthDate: null,
+    deathDate: null,
+    knownForDepartment: 'Manga Creation',
+    credits: {
+      cast: [],
+      crew
+    }
+  };
+}
+
 export async function fetchAniListPerson(id: number): Promise<UnifiedProfile | null> {
   const query = `
     query ($id: Int) {
@@ -292,7 +414,7 @@ export async function fetchAniListPerson(id: number): Promise<UnifiedProfile | n
   const charEdges = [...(data.characterMedia?.edges || [])];
   let hasNextCharPage = data.characterMedia?.pageInfo?.hasNextPage || false;
   let charPage = 2;
-  const maxPages = 30;
+  const maxPages = 2;
 
   while (hasNextCharPage && charPage <= maxPages) {
     const charQuery = `

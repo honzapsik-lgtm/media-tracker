@@ -13,12 +13,13 @@ export async function GET(
     return NextResponse.json({ error: "Invalid person ID" }, { status: 400 });
   }
 
-  const [provider, numericId] = parsed;
+  const [provider, rawId] = parsed;
 
-  const tmdbId = provider === 'tmdb' ? numericId : null;
-  const anilistId = provider === 'anilist' ? numericId : null;
-  const igdbId = provider === 'igdb' ? numericId : null;
-  const rawgId = provider === 'rawg' ? numericId : null;
+  const tmdbId = provider === 'tmdb' ? parseInt(rawId, 10) : null;
+  const anilistId = provider === 'anilist' ? parseInt(rawId, 10) : null;
+  const igdbId = provider === 'igdb' ? parseInt(rawId, 10) : null;
+  const rawgId = provider === 'rawg' ? parseInt(rawId, 10) : null;
+  const mangadexId = provider === 'mangadex' ? rawId : null;
 
   const dbPerson = await prisma.person.findFirst({
     where: {
@@ -27,6 +28,7 @@ export async function GET(
         ...(anilistId ? [{ anilistId }] : []),
         ...(igdbId ? [{ igdbId }] : []),
         ...(rawgId ? [{ rawgId }] : []),
+        ...(mangadexId ? [{ mangadexId }] : []),
       ]
     }
   });

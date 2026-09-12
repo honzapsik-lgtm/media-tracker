@@ -10,10 +10,6 @@ type JobPayload = {
   userId?: string;
   mediaType?: string;
   reason?: string;
-  anilistId?: number;
-  internalMediaId?: string;
-  personId?: string;
-  companyId?: string;
 };
 
 function createWorkerId() {
@@ -54,42 +50,6 @@ async function processJob(job: { id: string; type: string; payload: unknown }, r
       slowThresholdMs: PERF_WARN_THRESHOLD_MS,
       metadata: { source: "processJob", workerId, jobId: job.id, reason: payload.reason },
     }, () => updateUserStatsCache(payload.userId as string, payload.mediaType as any, payload.reason));
-  } else if (job.type === "syncAniListFranchiseTree") {
-    if (!payload.anilistId || !payload.internalMediaId) {
-      throw new Error("syncAniListFranchiseTree job requires anilistId and internalMediaId");
-    }
-    const { processFranchiseTree } = await import("@/lib/anilist-sync");
-    await timeOperation({
-      event: "worker.job.sync_anilist",
-      requestId,
-      slowThresholdMs: PERF_WARN_THRESHOLD_MS * 3,
-      metadata: { source: "processJob", workerId, jobId: job.id },
-    }, () => processFranchiseTree({ 
-      anilistId: payload.anilistId as number, 
-      internalMediaId: payload.internalMediaId as string 
-    }));
-  } else if (job.type === "syncPersonCrossPlatform") {
-    if (!payload.personId) {
-      throw new Error("syncPersonCrossPlatform job requires personId");
-    }
-    const { processPersonSync } = await import("@/lib/person-sync");
-    await timeOperation({
-      event: "worker.job.sync_person",
-      requestId,
-      slowThresholdMs: PERF_WARN_THRESHOLD_MS * 3,
-      metadata: { source: "processJob", workerId, jobId: job.id, personId: payload.personId },
-    }, () => processPersonSync(payload.personId as string));
-  } else if (job.type === "syncCompanyCrossPlatform") {
-    if (!payload.companyId) {
-      throw new Error("syncCompanyCrossPlatform job requires companyId");
-    }
-    const { processCompanySync } = await import("@/lib/company-sync");
-    await timeOperation({
-      event: "worker.job.sync_company",
-      requestId,
-      slowThresholdMs: PERF_WARN_THRESHOLD_MS * 3,
-      metadata: { source: "processJob", workerId, jobId: job.id, companyId: payload.companyId },
-    }, () => processCompanySync(payload.companyId as string));
   } else {
     throw new Error(`Unknown job type: ${job.type}`);
   }

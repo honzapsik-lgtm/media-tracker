@@ -441,11 +441,39 @@ export async function searchRelatedManga(title: string): Promise<{ id: number | 
     // Ignore cache read errors
   }
 
+  // 1. Primary: MangaDex (Fast, high-res covers, reliable)
+  try {
+    const mdResults = await searchMangaDex(title);
+    if (mdResults && mdResults.length > 0) {
+      const top = mdResults[0];
+      const result = {
+        id: top.id,
+        title: top.title,
+        image: top.image
+      };
+
+      try {
+        await prisma.apiCache.upsert({
+          where: { id: cacheKey },
+          update: { data: result as any, expires_at: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7) },
+          create: { id: cacheKey, provider: 'mangadex', data: result as any, expires_at: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7) }
+        });
+      } catch (e) {
+        // Ignore cache write error
+      }
+
+      return result;
+    }
+  } catch (error) {
+    console.warn("searchRelatedManga MangaDex primary attempt failed:", error);
+  }
+
+  // 2. Fallback: AniList
   try {
     const response = await fetchWithRetry("https://graphql.anilist.co", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Accept": "application/json" },
-      signal: AbortSignal.timeout(3500),
+      signal: AbortSignal.timeout(2000),
       body: JSON.stringify({
         query: `
           query ($search: String) {
@@ -487,34 +515,7 @@ export async function searchRelatedManga(title: string): Promise<{ id: number | 
       }
     }
   } catch (e) {
-    console.warn("searchRelatedManga AniList attempt failed, trying MangaDex fallback:", e);
-  }
-
-  // Fallback to MangaDex for related manga
-  try {
-    const mdResults = await searchMangaDex(title);
-    if (mdResults && mdResults.length > 0) {
-      const top = mdResults[0];
-      const result = {
-        id: top.id,
-        title: top.title,
-        image: top.image
-      };
-
-      try {
-        await prisma.apiCache.upsert({
-          where: { id: cacheKey },
-          update: { data: result as any, expires_at: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7) },
-          create: { id: cacheKey, provider: 'mangadex', data: result as any, expires_at: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7) }
-        });
-      } catch (e) {
-        // Ignore cache write error
-      }
-
-      return result;
-    }
-  } catch (error) {
-    console.warn("searchRelatedManga MangaDex fallback failed:", error);
+    // Ignore fallback errors
   }
 
   return null;

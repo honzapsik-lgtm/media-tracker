@@ -20,8 +20,8 @@ export const authOptions: NextAuthOptions = {
     async session({ session, user }) {
       if (session.user) {
         session.user.id = user.id;
-        // @ts-ignore
         session.user.role = (user as any).role;
+        session.user.username = (user as any).username;
       }
       return session;
     },

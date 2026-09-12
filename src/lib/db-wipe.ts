@@ -2,6 +2,11 @@ import { prisma } from "@/lib/prisma";
 
 export async function wipeAppData() {
   await prisma.$transaction([
+    prisma.userActivity.deleteMany(),
+    prisma.userFriendPreference.deleteMany(),
+    prisma.friendship.deleteMany(),
+    prisma.userPrivacySettings.deleteMany(),
+    prisma.activityLog.deleteMany(),
     prisma.episode.deleteMany(),
     prisma.season.deleteMany(),
     prisma.media.deleteMany(),

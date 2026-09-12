@@ -1,8 +1,9 @@
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { Prisma, MediaType } from "@prisma/client";
+import { Prisma, MediaType, ActivityType } from "@prisma/client";
 import { authOptions } from "@/lib/auth";
+import { logUserActivity } from "@/lib/activity";
 import { PERF_WARN_THRESHOLD_MS } from "@/lib/admin-constants";
 import { enqueueJob } from "@/lib/jobs";
 import { timeOperation } from "@/lib/logger";
@@ -166,6 +167,18 @@ export async function POST(request: Request) {
         payload: { userId: session.user.id, mediaType, reason: "rating_saved" },
         dedupeKey: `update_user_stats:${session.user.id}`,
         requestId,
+      }),
+      logUserActivity({
+        userId: session.user.id,
+        type: ActivityType.RATED_MEDIA,
+        mediaId,
+        mediaTitle: body.mediaTitle,
+        mediaImage: body.mediaImage,
+        mediaType,
+        data: {
+          score,
+          isDeepReview: body.isDeepReview ?? false,
+        },
       }),
     ]);
   });
