@@ -131,20 +131,25 @@ export async function getTMDbDetails(id: string, type: 'movie' | 'tv') {
   const cached = await prisma.apiCache.findUnique({ where: { id: cacheId } });
   if (cached && cached.data && JSON.stringify(cached.data) !== 'null' && cached.expires_at > new Date()) {
     const cachedData = cached.data as any;
-    if (cachedData.originalLanguage !== undefined) {
+    const needsCastUpgrade = type === 'tv' && Array.isArray(cachedData.cast) && cachedData.cast.length <= 15;
+    if (cachedData.originalLanguage !== undefined && !needsCastUpgrade) {
       return cachedData;
     }
   }
 
   if (!TMDB_API_KEY) throw new Error("TMDb API Key is missing");
 
+  const appendParams = type === 'tv'
+    ? 'credits,aggregate_credits,videos,release_dates,watch/providers'
+    : 'credits,videos,release_dates,watch/providers';
+
   const res = await timeProviderFetch({
     provider: "tmdb",
     cacheId,
     operation: "tmdb.details",
     fetcher: () => fetch(
-    `${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}&language=en-US&append_to_response=credits,videos,release_dates,watch/providers`,
-    { next: { revalidate: 3600 } }
+      `${BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}&language=en-US&append_to_response=${appendParams}`,
+      { next: { revalidate: 3600 } }
     ),
   });
 
@@ -155,28 +160,52 @@ export async function getTMDbDetails(id: string, type: 'movie' | 'tv') {
     (vid: any) => vid.site === 'YouTube' && vid.type === 'Trailer'
   );
 
-  // WE KEEP EVERYONE NOW (capping at 50 so the browser doesn't lag out on uncredited extras)
-  const fullCast = data.credits?.cast?.slice(0, 50).map((actor: any) => ({
-    id: actor.id,
-    name: actor.name,
-    character: actor.character,
-    image: actor.profile_path ? `https://image.tmdb.org/t/p/w200${actor.profile_path}` : null,
-  })) || [];
+  // For TV shows, aggregate_credits contains the series cast across all seasons (sorted by episode count/billing).
+  // data.credits.cast only contains the cast credited in the most recent episode/season (which was only 14 actors for GoT).
+  const rawCast = (type === 'tv' && data.aggregate_credits?.cast?.length)
+    ? data.aggregate_credits.cast
+    : (data.credits?.cast || []);
+
+  const fullCast = rawCast.slice(0, 50).map((actor: any) => {
+    const charName = (actor.roles && actor.roles.length > 0)
+      ? actor.roles.map((r: any) => r.character).filter(Boolean).slice(0, 2).join(' / ')
+      : actor.character || 'Unknown Role';
+
+    return {
+      id: actor.id,
+      name: actor.name,
+      character: charName,
+      image: actor.profile_path ? `https://image.tmdb.org/t/p/w200${actor.profile_path}` : null,
+    };
+  });
 
   // THE NEW CREW SEARCH LOGIC:
   const credits: MediaCredit[] = [];
-  const crew = data.credits?.crew || [];
+  const rawCrew = (type === 'tv' && data.aggregate_credits?.crew?.length)
+    ? data.aggregate_credits.crew
+    : (data.credits?.crew || []);
 
-  crew.forEach((c: any) => {
-    const role = normalizeTMDbRole(c.job);
-    if (!credits.find(existing => existing.id === `tmdb-${c.id}` && existing.role === role)) {
-      credits.push({
-        id: `tmdb-${c.id}`,
-        name: c.name,
-        role: role,
-        image: c.profile_path ? `https://image.tmdb.org/t/p/w200${c.profile_path}` : null,
+  rawCrew.forEach((c: any) => {
+    const jobsList: string[] = [];
+    if (Array.isArray(c.jobs) && c.jobs.length > 0) {
+      c.jobs.forEach((j: any) => {
+        if (j.job) jobsList.push(j.job);
       });
+    } else if (c.job) {
+      jobsList.push(c.job);
     }
+
+    jobsList.forEach((jobName) => {
+      const role = normalizeTMDbRole(jobName);
+      if (!credits.find(existing => existing.id === `tmdb-${c.id}` && existing.role === role)) {
+        credits.push({
+          id: `tmdb-${c.id}`,
+          name: c.name,
+          role: role,
+          image: c.profile_path ? `https://image.tmdb.org/t/p/w200${c.profile_path}` : null,
+        });
+      }
+    });
   });
 
   if (data.created_by) {
