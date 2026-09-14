@@ -55,12 +55,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Title and media_type are required" }, { status: 400 });
     }
 
-    let finalMediaType = media_type.toUpperCase();
-    if (finalMediaType === "SEASON") {
-      finalMediaType = "SHOW";
-    }
-
-    const validMediaTypes = ["MOVIE", "SHOW", "MANGA", "GAME", "OTHER"];
+    const finalMediaType = media_type.toUpperCase();
+    const validMediaTypes = ["MOVIE", "SHOW", "SEASON", "EPISODE", "MANGA", "GAME", "OTHER"];
     if (!validMediaTypes.includes(finalMediaType)) {
       return NextResponse.json({ error: "Invalid media_type" }, { status: 400 });
     }

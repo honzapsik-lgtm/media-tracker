@@ -104,6 +104,23 @@ export default async function AdminCachePage({
     <main className="min-h-screen bg-gray-950 px-8 pb-16 pt-24 text-white">
       <div className="mx-auto max-w-7xl">
         <AdminNav />
+
+        {params.message === "cleanup_completed" && (
+          <div className="mb-6 rounded-lg border border-green-500/40 bg-green-950/40 p-4 text-sm font-bold text-green-300">
+            Expired cache cleaned successfully! Deleted {params.deleted ?? 0} expired records.
+          </div>
+        )}
+        {params.error === "invalid_confirmation" && (
+          <div className="mb-6 rounded-lg border border-red-500/40 bg-red-950/40 p-4 text-sm font-bold text-red-300">
+            Confirmation text did not match. Please type &quot;{ADMIN_CACHE_CLEANUP_CONFIRM_TEXT}&quot; to delete expired cache.
+          </div>
+        )}
+        {params.error === "cleanup_failed" && (
+          <div className="mb-6 rounded-lg border border-red-500/40 bg-red-950/40 p-4 text-sm font-bold text-red-300">
+            Cache cleanup failed. Please inspect the admin logs for more information.
+          </div>
+        )}
+
         <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <h1 className="mb-2 text-4xl font-black">Provider Cache</h1>

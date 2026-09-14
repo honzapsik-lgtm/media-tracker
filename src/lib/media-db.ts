@@ -21,11 +21,15 @@ export interface ProfileMediaItem {
 
 export function inferMediaType(mediaId: string): MediaType {
   const parts = mediaId.split("-");
-  if (parts[0] === "tmdb" && parts[1] === "movie") return "MOVIE" as MediaType;
-  if (parts[0] === "tmdb" && parts[1] === "tv") return "SHOW" as MediaType;
-  if (parts[0] === "rawg" || parts[0] === "igdb") return "GAME" as MediaType;
-  if (parts[0] === "manga") return "MANGA" as MediaType;
-  return "OTHER" as MediaType;
+  if (parts[0] === "tmdb" && parts[1] === "movie") return "MOVIE";
+  if (parts[0] === "tmdb" && parts[1] === "tv") {
+    if (mediaId.includes("-e") || parts.length === 5) return "EPISODE";
+    if (mediaId.includes("-s") || parts.length === 4) return "SEASON";
+    return "SHOW";
+  }
+  if (parts[0] === "rawg" || parts[0] === "igdb") return "GAME";
+  if (parts[0] === "manga") return "MANGA";
+  return "OTHER";
 }
 
 export function formatProfileRating(row: {
@@ -54,8 +58,7 @@ export function formatProfileRating(row: {
 }
 
 export async function refreshMediaStats(mediaId: string, mediaTypeParam: MediaType = inferMediaType(mediaId)) {
-  let mediaType = (typeof mediaTypeParam === "string" ? mediaTypeParam.toUpperCase() : mediaTypeParam) as MediaType;
-  if (mediaType === ("SEASON" as any)) mediaType = "SHOW";
+  const mediaType = (typeof mediaTypeParam === "string" ? mediaTypeParam.toUpperCase() : mediaTypeParam) as MediaType;
   await timeOperation({
     event: "media_stats.refresh",
     mediaId,
@@ -223,14 +226,16 @@ export async function getRankedMedia(
   else if (mediaTypeUpper === "GAME") dbMediaType = "GAME";
   else if (mediaTypeUpper === "MANGA") dbMediaType = "MANGA";
   else if (mediaTypeUpper === "OTHER") dbMediaType = "OTHER";
+  else if (mediaTypeUpper === "SEASON") dbMediaType = "SEASON";
+  else if (mediaTypeUpper === "EPISODE") dbMediaType = "EPISODE";
 
   let typeCondition = Prisma.sql`s.media_type = ${dbMediaType}::"MediaType"`;
   if (mediaTypeUpper === "SEASON") {
-    typeCondition = Prisma.sql`s.media_type = ${dbMediaType}::"MediaType" AND s.id LIKE '%-s%' AND s.id NOT LIKE '%-e%'`;
+    typeCondition = Prisma.sql`(s.media_type = 'SEASON'::"MediaType" OR (s.media_type = 'SHOW'::"MediaType" AND s.id LIKE '%-s%' AND s.id NOT LIKE '%-e%'))`;
   } else if (mediaTypeUpper === "EPISODE") {
-    typeCondition = Prisma.sql`s.media_type = ${dbMediaType}::"MediaType" AND s.id LIKE '%-e%'`;
+    typeCondition = Prisma.sql`(s.media_type = 'EPISODE'::"MediaType" OR (s.media_type = 'SHOW'::"MediaType" AND s.id LIKE '%-e%'))`;
   } else if (mediaTypeUpper === "SHOW") {
-    typeCondition = Prisma.sql`s.media_type = ${dbMediaType}::"MediaType" AND s.id NOT LIKE '%-s%' AND s.id NOT LIKE '%-e%'`;
+    typeCondition = Prisma.sql`s.media_type = 'SHOW'::"MediaType" AND s.id NOT LIKE '%-s%' AND s.id NOT LIKE '%-e%'`;
   }
   
   type RankedMediaRow = {

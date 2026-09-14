@@ -88,8 +88,7 @@ export async function POST(request: Request) {
   const mediaId = body.mediaId;
   const score = body.score;
   const rawMediaType: any = body.mediaType || inferMediaType(mediaId);
-  let mediaType = (typeof rawMediaType === "string" ? rawMediaType.toUpperCase() : rawMediaType) as MediaType;
-  if (mediaType === ("SEASON" as any)) mediaType = "SHOW";
+  const mediaType = (typeof rawMediaType === "string" ? rawMediaType.toUpperCase() : rawMediaType) as MediaType;
   const criteriaScores = body.isDeepReview ? body.criteriaScores ?? {} : {};
 
   const totalMetadata = {

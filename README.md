@@ -78,7 +78,7 @@ Key capabilities include:
 
 ## 3. Database Architecture & "The Rosetta Stone"
 
-The Prisma schema (`prisma/schema.prisma`) defines 23 models and enums that bridge disparate media formats and provider IDs into a unified relational graph.
+The Prisma schema (`prisma/schema.prisma`) defines 25 models and enums that bridge disparate media formats and provider IDs into a unified relational graph.
 
 ```mermaid
 erDiagram
@@ -100,7 +100,7 @@ erDiagram
 Every piece of content is anchored in the `media` table:
 - `id` (String / UUID): Primary universal identifier.
 - `title` (String): Normalized canonical title.
-- `type` (`MediaType` enum: `SHOW`, `MOVIE`, `GAME`, `MANGA`, `OTHER`).
+- `type` (`MediaType` enum: `SHOW`, `SEASON`, `EPISODE`, `MOVIE`, `GAME`, `MANGA`, `OTHER`).
 - `isMainStoryline` (Boolean): Distinguishes main canonical entries from spin-offs/OVAs.
 - `releaseDate` (String): ISO date string.
 - `relatedMediaId` / `relatedMedia` / `inverseRelated`: Self-referential relation establishing parent franchise trees, sequels, and prequels.
@@ -166,14 +166,14 @@ Because Media Tracker ingests data from disparate external sources, the `media` 
 
 ### 3.7 Custom Lists & Global Rankings Table
 - **`UserList` Table:**
-  - `id` (UUID), `user_id`, `title` (String), `description` (String?), `media_type` (`MediaType`).
+  - `id` (UUID), `user_id`, `title` (String), `description` (String?), `media_type` (`MediaType`: `SHOW`, `SEASON`, `EPISODE`, `MOVIE`, `GAME`, `MANGA`, `OTHER`). Custom lists are strictly partitioned so Shows, Seasons, Episodes, Movies, Games, and Manga maintain completely isolated ranking lists.
 - **`UserListItem` Table:**
   - `list_id`, `media_id`, `media_title`, `media_image`.
   - `rank_position` (Int): 1-indexed relative placement in the user's custom tier list.
 - **`GlobalRanking` Table:**
-  - `media_id`, `media_type`.
+  - `media_id`, `media_type` (`MediaType`).
   - `elo_score` (Float, default: 1200.0).
-  - `rank` (Int): Integer ranking computed by the mathematical PageRank aggregation worker.
+  - `rank` (Int): Integer ranking computed by the mathematical PageRank aggregation worker, partitioned independently per `media_type`.
 
 ### 3.8 Activity Logs & Structured System Logs
 - **`UserActivity` Table:**
@@ -431,7 +431,7 @@ $$R_{t+1} = \frac{1 - d}{N} + d \sum_{j \in M(i)} \frac{R_t(j)}{C(j)}$$
 - Convergence threshold: $0.00001$
 - Max iterations: $100$
 
-Results are normalized and written to the `GlobalRanking` table partitioned by `media_type`.
+Results are normalized and written to the `GlobalRanking` table partitioned by `media_type` (`SHOW`, `SEASON`, `EPISODE`, `MOVIE`, `GAME`, `MANGA`), ensuring that whole TV shows, individual seasons, and individual episodes are calculated and displayed on their own independent global leaderboards.
 
 ---
 
@@ -449,14 +449,15 @@ Users with `role = 'admin'` have access to the administrative suite:
 
 - **`/admin` (System Overview):** Real-time metric cards displaying total users, media items, ratings, reviews, cache entries, and queued jobs.
 - **`/admin/users`:** Search and manage user accounts, assign or revoke `admin` privileges.
-- **`/admin/cache`:** Search, inspect, and delete individual keys in `ApiCache`, or flush by provider (`tmdb`, `mangadex`, `igdb`, `jikan`).
+- **`/admin/cache`:** Search, inspect, and delete individual keys in `ApiCache`, flush by provider (`tmdb`, `mangadex`, `igdb`, `jikan`), or execute **"Delete expired cache"** (requires typing `DELETE EXPIRED CACHE` to purge stale records where `expires_at < NOW()`, with clean redirection and status alert banners).
 - **`/admin/jobs`:** Monitor the `BackgroundJob` queue, view execution attempt counters, inspect failure stack traces, and retry failed jobs.
 - **`/admin/logs`:** Searchable real-time stream of `SystemLog` entries with filtering by log level (`INFO`, `WARN`, `ERROR`) and duration.
 - **`/admin/database`:** Database table row counts and storage utilization stats.
-- **Database Wipe Engine ("Nuke Database"):**
-  - Initiated via the Admin UI with double-confirmation (requires typing the word `"nuke"`).
-  - Executes `wipeAppData()` (`src/lib/db-wipe.ts`) within an atomic Prisma transaction.
-  - **Preserves User Accounts & Sessions:** Deletes media, ratings, watchlists, custom lists, cache, jobs, and logs, but **safely preserves** the `users`, `accounts`, `sessions`, and `verification_tokens` tables so admin logins and OAuth credentials survive the wipe.
+- **Database Wipe Engines:**
+  - **Drawer Reset ("Wipe All Local Data"):** Slide-out drawer convenience button in `AppDrawer.tsx` requiring typing `WIPE LOCAL APP DATA`.
+  - **Admin Nuke ("NUKE DATABASE"):** Admin panel nuclear wipe button under `/admin/database` with confirmation protection.
+  - **Comprehensive Atomic Wiping:** Both trigger `wipeAppData()` (`src/lib/db-wipe.ts`) within an atomic Prisma transaction across all 21 non-auth models (media, seasons, episodes, ratings, reviews, watchlists, activities, friendships, lists, rankings, stats, jobs, caches, logs, creators, companies).
+  - **Preserves User Accounts & Sessions:** Deletes application data but **safely preserves** the `users`, `accounts`, `sessions`, and `verification_tokens` tables so user logins, OAuth credentials, and admin rights survive the wipe.
 
 ---
 
@@ -465,7 +466,7 @@ Users with `role = 'admin'` have access to the administrative suite:
 ```
 media-tracker/
 ├── prisma/
-│   └── schema.prisma                  # 23 Prisma models and enums
+│   └── schema.prisma                  # 25 Prisma models and enums
 ├── scripts/
 │   ├── clear-cache.ts                 # CLI cache flush utility
 │   ├── make-admin.ts                  # CLI script to grant admin role by email

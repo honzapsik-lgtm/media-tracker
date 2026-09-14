@@ -2,7 +2,7 @@ import "dotenv/config";
 import { prisma } from "../src/lib/prisma";
 import { RankingConfig } from "../src/config/ranking";
 
-const MEDIA_TYPES = ['SHOW', 'MOVIE', 'GAME', 'MANGA'];
+const MEDIA_TYPES = ['SHOW', 'SEASON', 'EPISODE', 'MOVIE', 'GAME', 'MANGA'];
 
 // Helper to calculate edge weight based on emotional gap and time decay
 function calculateEdgeWeight(gapMultiplier: number, updatedAt: Date): number {

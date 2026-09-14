@@ -6,7 +6,14 @@ import CreateListModal from "@/components/CreateListModal";
 import LiveSearchModal from "@/components/LiveSearchModal";
 
 export default function CustomListsManager() {
-  const categories = ["game", "movie", "show", "season", "episode", "manga"];
+  const categories = [
+    { id: "game", label: "Games" },
+    { id: "movie", label: "Movies" },
+    { id: "show", label: "Shows" },
+    { id: "season", label: "Seasons" },
+    { id: "episode", label: "Episodes" },
+    { id: "manga", label: "Manga" },
+  ];
   
   const [activeTabType, setActiveTabType] = useState<string>("show");
   const [viewMode, setViewMode] = useState<"grid" | "detail">("grid");
@@ -39,9 +46,12 @@ export default function CustomListsManager() {
       if (res.ok) {
         const data = await res.json();
         setLists(data.lists || []);
+      } else {
+        setLists([]);
       }
     } catch (err) {
       console.error("Failed to fetch lists", err);
+      setLists([]);
     } finally {
       setIsLoading(false);
     }
@@ -192,17 +202,17 @@ export default function CustomListsManager() {
   return (
     <div className="space-y-6">
       <div className="flex border-b border-gray-800 gap-2 overflow-x-auto overflow-y-hidden pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {categories.map((type) => (
+        {categories.map((cat) => (
           <button
-            key={type}
-            onClick={() => handleTabSwitch(type)}
-            className={`px-4 py-2 text-sm font-bold capitalize transition-all border-b-2 -mb-[9px] shrink-0 ${
-              activeTabType === type && viewMode === "grid"
+            key={cat.id}
+            onClick={() => handleTabSwitch(cat.id)}
+            className={`px-4 py-2 text-sm font-bold transition-all border-b-2 -mb-[9px] shrink-0 ${
+              activeTabType === cat.id && viewMode === "grid"
                 ? "border-blue-500 text-blue-400 font-black"
                 : "border-transparent text-gray-500 hover:text-gray-300"
             }`}
           >
-            {type}s
+            {cat.label}
           </button>
         ))}
       </div>

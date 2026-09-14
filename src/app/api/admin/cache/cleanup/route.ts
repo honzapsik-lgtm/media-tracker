@@ -12,6 +12,9 @@ export async function POST(request: Request) {
   try {
     const admin = await requireAdmin();
     const body = await readAdminPostBody(request);
+    const contentType = request.headers.get("content-type") ?? "";
+    const isForm = contentType.includes("application/x-www-form-urlencoded") || contentType.includes("multipart/form-data");
+
     if (!hasConfirmation(body, ADMIN_CACHE_CLEANUP_CONFIRM_TEXT)) {
       await appLog({
         level: "warn",
@@ -20,6 +23,9 @@ export async function POST(request: Request) {
         userId: admin.id,
         persist: true,
       });
+      if (isForm) {
+        return NextResponse.redirect(new URL("/admin/cache?error=invalid_confirmation", request.url), 303);
+      }
       return confirmationRequiredResponse(requestId);
     }
 
@@ -34,6 +40,10 @@ export async function POST(request: Request) {
       persist: true,
     });
 
+    if (isForm) {
+      return NextResponse.redirect(new URL(`/admin/cache?message=cleanup_completed&deleted=${deletedCount}`, request.url), 303);
+    }
+
     return NextResponse.json({ ok: true, deletedCount });
   } catch (error) {
     await appLog({
@@ -43,6 +53,11 @@ export async function POST(request: Request) {
       error,
       persist: true,
     });
+    const contentType = request.headers.get("content-type") ?? "";
+    const isForm = contentType.includes("application/x-www-form-urlencoded") || contentType.includes("multipart/form-data");
+    if (isForm) {
+      return NextResponse.redirect(new URL("/admin/cache?error=cleanup_failed", request.url), 303);
+    }
     return adminErrorResponse(error, requestId);
   }
 }
