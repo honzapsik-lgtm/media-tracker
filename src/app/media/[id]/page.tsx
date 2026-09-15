@@ -274,7 +274,7 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
       releaseDate: rawData?.startDate?.year ? `${rawData.startDate.year}-${String(rawData.startDate.month || 1).padStart(2, '0')}-${String(rawData.startDate.day || 1).padStart(2, '0')}` : null,
       globalScore: rawData?.averageScore || 0,
       runtime: rawData?.duration || null,
-      genres: [],
+      genres: rawData?.genres || [],
       trailerUrl: rawData?.trailer?.site === "youtube" ? `https://www.youtube.com/embed/${rawData.trailer.id}` : null,
       streamingLinks: [],
       cast: [],
@@ -331,7 +331,7 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
         releaseDate: localMedia.releaseDate || (rawData?.startDate?.year ? `${rawData.startDate.year}-${String(rawData.startDate.month || 1).padStart(2, '0')}-${String(rawData.startDate.day || 1).padStart(2, '0')}` : mdDetails?.releaseDate || null),
         globalScore: rawData?.averageScore || 0,
         runtime: rawData?.duration || null,
-        genres: mdDetails?.genres || [],
+        genres: mdDetails?.genres || rawData?.genres || [],
         trailerUrl: rawData?.trailer?.site === "youtube" ? `https://www.youtube.com/embed/${rawData.trailer.id}` : null,
         streamingLinks: (() => {
           const seen = new Set();
@@ -393,7 +393,7 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
         releaseDate: localMedia.releaseDate || (rawData.startDate?.year ? `${rawData.startDate.year}-${String(rawData.startDate.month || 1).padStart(2, '0')}-${String(rawData.startDate.day || 1).padStart(2, '0')}` : null),
         globalScore: rawData.averageScore ? rawData.averageScore : 0,
         runtime: rawData.duration,
-        genres: [],
+        genres: rawData.genres || [],
         trailerUrl: rawData.trailer?.site === "youtube" ? `https://www.youtube.com/embed/${rawData.trailer.id}` : null,
         streamingLinks: (() => {
           const seen = new Set();
@@ -803,6 +803,24 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
                 </>
               )}
             </div>
+
+            {/* GENRES */}
+            {Array.isArray(mediaDetails.genres) && mediaDetails.genres.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 mb-5">
+                {mediaDetails.genres.map((genre: string) => {
+                  const discoverType = mediaTypeKey === "show" ? "show" : mediaTypeKey;
+                  return (
+                    <Link
+                      key={genre}
+                      href={`/discover?type=${discoverType}&genre=${encodeURIComponent(genre.toLowerCase())}`}
+                      className="bg-gray-900/90 hover:bg-gray-800 border border-gray-800 hover:border-gray-700 text-gray-300 hover:text-white px-3 py-1 rounded-full text-xs font-semibold tracking-wide transition-all shadow-sm"
+                    >
+                      {genre}
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
 
             {/* DEVELOPERS & PUBLISHERS FOR GAMES */}
             {mediaTypeKey === 'game' && mediaDetails.companies && (

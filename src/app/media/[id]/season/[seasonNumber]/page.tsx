@@ -246,6 +246,21 @@ export default async function SeasonPage({
               </div>
             </div>
 
+            {/* GENRES */}
+            {Array.isArray(showDetails?.genres) && showDetails.genres.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 mb-5">
+                {showDetails.genres.map((genre: string) => (
+                  <Link
+                    key={genre}
+                    href={`/discover?type=show&genre=${encodeURIComponent(genre.toLowerCase())}`}
+                    className="bg-gray-900/90 hover:bg-gray-800 border border-gray-800 hover:border-gray-700 text-gray-300 hover:text-white px-3 py-1 rounded-full text-xs font-semibold tracking-wide transition-all shadow-sm"
+                  >
+                    {genre}
+                  </Link>
+                ))}
+              </div>
+            )}
+
             {/* STUDIOS ROW */}
             {(() => {
               const studios = cleanStudioData(

@@ -9,6 +9,7 @@ export interface MediaItem {
   totalRatings?: number | null;
   originalLanguage?: string;
   genreIds?: number[];
+  genres?: string[];
   origin?: string;
 }
 

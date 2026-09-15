@@ -79,6 +79,7 @@ export async function getAnilistDetails(anilistId: number) {
                 day
               }
               averageScore
+              genres
               staff(page: $page, perPage: 25, sort: [RELEVANCE, ID]) {
                 pageInfo {
                   hasNextPage

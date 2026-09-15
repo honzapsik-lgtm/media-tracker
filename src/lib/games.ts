@@ -145,14 +145,17 @@ export async function getGameDetails(id: string) {
   const cacheId = `igdb-game-${numericId}`;
   const cached = await prisma.apiCache.findUnique({ where: { id: cacheId } });
   if (cached && cached.data && JSON.stringify(cached.data) !== 'null' && cached.expires_at > new Date()) {
-    return cached.data as any;
+    const cachedData = cached.data as any;
+    if (Array.isArray(cachedData.genres)) {
+      return cachedData;
+    }
   }
 
   const token = await getIGDBToken();
   const clientId = process.env.TWITCH_CLIENT_ID;
   if (!token || !clientId) throw new Error("Missing IGDB credentials");
 
-  const bodyQuery = `fields name, cover.image_id, summary, first_release_date, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, game_engines.name, platforms.name, websites.url, videos.video_id; where id = ${numericId};`;
+  const bodyQuery = `fields name, cover.image_id, summary, first_release_date, genres.name, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, game_engines.name, platforms.name, websites.url, videos.video_id; where id = ${numericId};`;
 
   const res = await timeProviderFetch({
     provider: "igdb",
@@ -281,7 +284,7 @@ export async function getGameDetails(id: string) {
     releaseDate: game.first_release_date ? new Date(game.first_release_date * 1000).toISOString().split('T')[0] : 'N/A',
     globalScore: 0,
     runtime: null,
-    genres: [],
+    genres: game.genres ? game.genres.map((g: any) => g.name).filter(Boolean) : [],
     trailerUrl,
     cast: [],
     seasons: null,
