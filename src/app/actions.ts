@@ -20,24 +20,107 @@ const isValidYear = (year: string) => /^\d{4}$/.test(year.trim());
 const normalizeGenreKey = (genre: string) =>
   genre.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
 
-// TMDb genre IDs (common genres only)
-const tmdbGenreIdByKey: Record<string, number> = {
+// TMDb Movie Genre IDs
+const tmdbMovieGenreIdByKey: Record<string, number> = {
   action: 28,
+  adventure: 12,
+  animation: 16,
+  comedy: 35,
+  crime: 80,
+  documentary: 99,
   drama: 18,
-  scifi: 878, // also matches "sci-fi" after normalization
+  family: 10751,
+  fantasy: 14,
+  history: 36,
+  horror: 27,
+  music: 10402,
+  mystery: 9648,
+  romance: 10749,
+  scifi: 878,
+  sciencefiction: 878,
+  tvmovie: 10770,
+  thriller: 53,
+  war: 10752,
+  western: 37,
+};
+
+// TMDb TV Show Genre IDs
+const tmdbShowGenreIdByKey: Record<string, number> = {
+  action: 10759,
+  adventure: 10759,
+  actionadventure: 10759,
+  animation: 16,
+  comedy: 35,
+  crime: 80,
+  documentary: 99,
+  drama: 18,
+  family: 10751,
+  kids: 10762,
+  mystery: 9648,
+  news: 10763,
+  reality: 10764,
+  scifi: 10765,
+  fantasy: 10765,
+  scififantasy: 10765,
+  soap: 10766,
+  talk: 10767,
+  war: 10768,
+  warpolitics: 10768,
+  western: 37,
 };
 
 const rawgGenreSlugByKey: Record<string, string> = {
   action: "action",
-  drama: "story-rich",
-  scifi: "sci-fi",
+  adventure: "adventure",
+  rpg: "role-playing-games-rpg",
+  roleplaying: "role-playing-games-rpg",
+  roleplayingrpg: "role-playing-games-rpg",
+  shooter: "shooter",
+  strategy: "strategy",
+  simulation: "simulation",
+  puzzle: "puzzle",
+  racing: "racing",
+  sports: "sports",
+  fighting: "fighting",
+  family: "family",
+  boardgames: "board-games",
+  educational: "educational",
+  card: "card",
+  indie: "indie",
+  massmultiplayer: "massively-multiplayer",
+  massivelymultiplayer: "massively-multiplayer",
 };
 
 // MAL genre IDs for manga (Jikan v4)
 const jikanMangaGenreIdByKey: Record<string, number> = {
   action: 1,
+  adventure: 2,
+  comedy: 4,
   drama: 8,
+  fantasy: 10,
+  horror: 14,
+  mystery: 7,
+  romance: 22,
   scifi: 24,
+  sciencefiction: 24,
+  slice: 36,
+  sliceoflife: 36,
+  sports: 30,
+  supernatural: 37,
+  suspense: 41,
+  thriller: 41,
+  ecchi: 9,
+  erotica: 49,
+  historical: 13,
+  martialarts: 17,
+  mecha: 18,
+  music: 19,
+  parody: 20,
+  psychological: 40,
+  seinen: 42,
+  shoujo: 43,
+  shounen: 44,
+  josei: 45,
 };
 
 export async function getSeasonEpisodes(tvId: string, seasonNumber: number) {
@@ -165,9 +248,11 @@ export async function discoverMedia(
       const TMDB_API_KEY = process.env.TMDB_API_KEY;
       if (!TMDB_API_KEY) return [];
 
-      const tmdbGenreId = tmdbGenreIdByKey[normalizedGenre];
-
       const tmdbDiscoverType = type === "movie" ? "movie" : "tv";
+      const tmdbGenreId = tmdbDiscoverType === "movie"
+        ? tmdbMovieGenreIdByKey[normalizedGenre]
+        : tmdbShowGenreIdByKey[normalizedGenre];
+
       const url = new URL(
         `https://api.themoviedb.org/3/discover/${tmdbDiscoverType}`
       );
@@ -182,18 +267,34 @@ export async function discoverMedia(
         );
       }
       // TMDb expects sort_by like "popularity.desc" etc; if sort is empty, omit.
-      if (sort) url.searchParams.set("sort_by", sort);
+      if (sort) {
+        const tmdbSort = sort === "popular" ? "popularity.desc" : sort === "top_rated" ? "vote_average.desc" : sort;
+        url.searchParams.set("sort_by", tmdbSort);
+      }
 
       // Keep response small-ish.
       url.searchParams.set("page", "1");
 
-      const res = await timeProviderFetch({
-        provider: "tmdb",
-        cacheId,
-        operation: "tmdb.discover",
-        fetcher: () => fetch(url.toString(), { next: { revalidate: 3600 } }),
-      });
-      if (!res.ok) return [];
+      let res: Response | null = null;
+      try {
+        res = await timeProviderFetch({
+          provider: "tmdb",
+          cacheId,
+          operation: "tmdb.discover",
+          fetcher: async () => {
+            try {
+              return await fetch(url.toString(), { next: { revalidate: 3600 } });
+            } catch {
+              await new Promise((r) => setTimeout(r, 300));
+              return await fetch(url.toString(), { next: { revalidate: 3600 } });
+            }
+          },
+        });
+      } catch (err) {
+        console.warn("[discoverMedia] TMDb discover request failed:", err);
+        return [];
+      }
+      if (!res || !res.ok) return [];
       const data: any = await res.json();
 
       const results: any[] = Array.isArray(data?.results) ? data.results : [];
@@ -254,13 +355,26 @@ export async function discoverMedia(
       // RAWG expects ordering such as "-rating" or "released".
       if (sort) url.searchParams.set("ordering", sort);
 
-      const res = await timeProviderFetch({
-        provider: "rawg",
-        cacheId,
-        operation: "rawg.discover",
-        fetcher: () => fetch(url.toString(), { cache: "no-store" }),
-      });
-      if (!res.ok) return [];
+      let res: Response | null = null;
+      try {
+        res = await timeProviderFetch({
+          provider: "rawg",
+          cacheId,
+          operation: "rawg.discover",
+          fetcher: async () => {
+            try {
+              return await fetch(url.toString(), { cache: "no-store" });
+            } catch {
+              await new Promise((r) => setTimeout(r, 300));
+              return await fetch(url.toString(), { cache: "no-store" });
+            }
+          },
+        });
+      } catch (err) {
+        console.warn("[discoverMedia] RAWG discover request failed:", err);
+        return [];
+      }
+      if (!res || !res.ok) return [];
       const data: any = await res.json();
       const results: any[] = Array.isArray(data?.results) ? data.results : [];
 
@@ -297,25 +411,39 @@ export async function discoverMedia(
       const malGenreId = jikanMangaGenreIdByKey[normalizedGenre];
 
       const url = new URL("https://api.jikan.moe/v4/manga");
-      const q = genre?.trim() ? genre.trim() : "";
-      url.searchParams.set("q", q);
       url.searchParams.set("limit", "12");
       url.searchParams.set("order_by", "score");
       url.searchParams.set("sort", sort === "lowest" ? "asc" : "desc");
-
-      if (malGenreId) url.searchParams.set("genres", String(malGenreId));
+      if (malGenreId) {
+        url.searchParams.set("genres", String(malGenreId));
+      } else if (genre?.trim()) {
+        url.searchParams.set("q", genre.trim());
+      }
       if (yearOk) {
         url.searchParams.set("start_date", `${yearOk}-01-01`);
         url.searchParams.set("end_date", `${yearOk}-12-31`);
       }
 
-      const res = await timeProviderFetch({
-        provider: "jikan",
-        cacheId,
-        operation: "jikan.discover",
-        fetcher: () => fetch(url.toString(), { next: { revalidate: 3600 } }),
-      });
-      if (!res.ok) return [];
+      let res: Response | null = null;
+      try {
+        res = await timeProviderFetch({
+          provider: "jikan",
+          cacheId,
+          operation: "jikan.discover",
+          fetcher: async () => {
+            try {
+              return await fetch(url.toString(), { next: { revalidate: 3600 } });
+            } catch {
+              await new Promise((r) => setTimeout(r, 300));
+              return await fetch(url.toString(), { next: { revalidate: 3600 } });
+            }
+          },
+        });
+      } catch (err) {
+        console.warn("[discoverMedia] Jikan discover request failed:", err);
+        return [];
+      }
+      if (!res || !res.ok) return [];
 
       const data: any = await res.json();
       const results: any[] = Array.isArray(data?.data) ? data.data : [];
