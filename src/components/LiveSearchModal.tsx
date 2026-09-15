@@ -83,7 +83,7 @@ export default function LiveSearchModal({ isOpen, onClose, mediaType, onSelect }
                   onClick={() => {
                     const finalItem = { ...item };
                     if (item.origin === 'ANILIST' && !String(item.id).startsWith('anilist-')) {
-                      finalItem.id = `anilist-${item.id}`;
+                      finalItem.id = `anilist-manga-${item.id}`;
                     }
                     onSelect(finalItem);
                   }}

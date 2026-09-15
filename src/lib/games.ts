@@ -131,7 +131,16 @@ export async function getTrendingGames(): Promise<MediaItem[]> {
 }
 
 export async function getGameDetails(id: string) {
-  const numericId = parseInt(id.replace('igdb-game-', '').replace('rawg-game-', ''), 10);
+  if (!id) return null;
+  const numericId = parseInt(
+    String(id)
+      .replace(/^igdb-game-/, '')
+      .replace(/^rawg-game-/, '')
+      .replace(/^igdb-/, '')
+      .replace(/^rawg-/, ''),
+    10
+  );
+  if (isNaN(numericId)) return null;
   
   const cacheId = `igdb-game-${numericId}`;
   const cached = await prisma.apiCache.findUnique({ where: { id: cacheId } });

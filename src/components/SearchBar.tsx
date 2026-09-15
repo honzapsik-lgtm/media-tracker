@@ -106,7 +106,7 @@ export default function SearchBar() {
               {results.map((item) => (
                 <Link
                   key={`${item.origin || 'tmdb'}-${item.id}`}
-                  href={item.origin === 'ANILIST' && !String(item.id).startsWith('anilist-') ? `/media/anilist-${item.id}` : `/media/${item.id}`}
+                  href={item.origin === 'ANILIST' && !String(item.id).startsWith('anilist-') ? `/media/anilist-manga-${item.id}` : `/media/${item.id}`}
                   onClick={handleResultClick}
                   className="flex items-center gap-3 p-3 hover:bg-gray-800 transition-colors group"
                 >

@@ -25,9 +25,9 @@ export async function GET(request: Request) {
   } else if (type === "movie") {
     mediaFilter = { startsWith: "tmdb-movie-" };
   } else if (type === "game") {
-    mediaFilter = { OR: [{ startsWith: "rawg-game-" }, { startsWith: "igdb-game-" }] };
+    mediaFilter = { OR: [{ startsWith: "rawg-" }, { startsWith: "igdb-" }] };
   } else if (type === "manga") {
-    mediaFilter = { startsWith: "manga-" };
+    mediaFilter = { OR: [{ startsWith: "manga-" }, { startsWith: "mangadex-" }, { startsWith: "anilist-" }, { startsWith: "jikan-" }] };
   }
 
   const [results, count] = await Promise.all([

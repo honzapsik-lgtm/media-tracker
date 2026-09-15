@@ -145,7 +145,7 @@ export async function searchMangaDex(query: string): Promise<MediaItem[]> {
       const releaseDate = year ? `${year}-01-01` : 'N/A';
 
       results.push({
-        id: `mangadex-${manga.id}`,
+        id: `mangadex-manga-${manga.id}`,
         title,
         type: 'manga',
         image,
@@ -276,6 +276,29 @@ export async function getMangaDexByAniListId(anilistId: number) {
     }
   } catch (error) {
     console.warn(`[MAL-Sync MangaDex Error] for anilist ${anilistId}:`, error);
+  }
+  return null;
+}
+
+/**
+ * Resolves a MyAnimeList manga ID to MangaDex details via MAL-Sync.
+ */
+export async function getMangaDexByMalId(malId: number) {
+  try {
+    const res = await fetch(`https://api.malsync.moe/mal/manga/${malId}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const mdSites = data.Sites?.Mangadex;
+    if (mdSites) {
+      const firstMdKey = Object.keys(mdSites)[0];
+      const mdEntry = mdSites[firstMdKey];
+      const mdId = mdEntry?.identifier || firstMdKey;
+      if (mdId) {
+        return await getMangaDexDetails(mdId);
+      }
+    }
+  } catch (error) {
+    console.warn(`[MAL-Sync MangaDex Error] for mal ${malId}:`, error);
   }
   return null;
 }

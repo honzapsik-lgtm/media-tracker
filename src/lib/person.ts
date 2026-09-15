@@ -270,7 +270,7 @@ export async function fetchMangaDexPerson(authorId: string): Promise<UnifiedProf
   const mangaList = [...(authorWorksJson.data || []), ...(artistWorksJson.data || [])];
 
   for (const manga of mangaList) {
-    const mediaId = `mangadex-${manga.id}`;
+    const mediaId = `mangadex-manga-${manga.id}`;
     if (seenMedia.has(mediaId)) continue;
     seenMedia.add(mediaId);
 

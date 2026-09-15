@@ -414,7 +414,7 @@ export async function searchAniList(query: string): Promise<MediaItem[]> {
         : 'N/A';
 
       return {
-        id: `anilist-${item.id}`,
+        id: `anilist-manga-${item.id}`,
         title,
         type: 'manga',
         image: item.coverImage?.large || null,

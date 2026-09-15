@@ -111,9 +111,26 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
     }
   }
 
+  // Canonicalize legacy 2-part URLs to standard 3-part URLs:
+  if (parts[0] === 'igdb' && parts[1] !== 'game') {
+    redirect(`/media/igdb-game-${parts.slice(1).join('-')}`);
+  }
+  if (parts[0] === 'rawg' && parts[1] !== 'game') {
+    redirect(`/media/rawg-game-${parts.slice(1).join('-')}`);
+  }
+  if (parts[0] === 'mangadex' && parts[1] !== 'manga') {
+    redirect(`/media/mangadex-manga-${parts.slice(1).join('-')}`);
+  }
+  if (parts[0] === 'anilist' && parts[1] !== 'manga') {
+    redirect(`/media/anilist-manga-${parts.slice(1).join('-')}`);
+  }
+  if (parts[0] === 'manga') {
+    redirect(`/media/jikan-manga-${parts.slice(1).join('-')}`);
+  }
+
   const provider = parts[0]; 
   
-  let mediaDetails = null;
+  let mediaDetails: any = null;
   let rawData: any = null;
   let primaryStaff: any[] = [];
   let secondaryStaff: any[] = [];
@@ -139,10 +156,11 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
       }
     }
   } else if (provider === 'igdb' || provider === 'rawg') {
+    const rawGameId = parts.length > 2 ? parts[2] : parts[1];
     if (provider === 'igdb') {
-      mediaDetails = await getGameDetails(parts[2]);
+      mediaDetails = await getGameDetails(rawGameId);
     } else {
-      const rawgId = parseInt(parts[2], 10);
+      const rawgId = parseInt(rawGameId, 10);
       const resolvedIgdbId = await resolveRAWGToIGDB(rawgId);
       if (resolvedIgdbId) {
         redirect(`/media/igdb-game-${resolvedIgdbId}`);
@@ -177,38 +195,54 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
       );
     }
   } else if (provider === 'mangadex') {
-    const mangadexId = parts.slice(1).join('-');
-    const localMedia = await prisma.media.findUnique({
-      where: { mangadexId }
-    });
-
-    if (localMedia) {
-      redirect(`/media/${localMedia.id}`);
-    }
-
-    const { getMangaDexDetails, upsertMangaDexMedia } = await import('@/lib/mangadex');
+    const mangadexId = parts.slice(2).join('-');
+    const { getMangaDexDetails } = await import('@/lib/mangadex');
     const mdDetails = await getMangaDexDetails(mangadexId);
     if (!mdDetails) return notFound();
 
-    const dbMedia = await upsertMangaDexMedia(mdDetails);
-    redirect(`/media/${dbMedia.id}`);
-  } else if (provider === 'anilist') {
-    const extractedId = parseInt(parts[1]);
-    const localMedia = await prisma.media.findUnique({
-      where: { anilistId: extractedId }
-    });
-    if (localMedia) {
-      redirect(`/media/${localMedia.id}`);
+    let anilistData: any = null;
+    if (mdDetails.anilistId) {
+      anilistData = await getAnilistDetails(mdDetails.anilistId).catch(() => null);
     }
 
+    mediaDetails = {
+      id: mediaId,
+      title: mdDetails.title || anilistData?.title?.english || anilistData?.title?.romaji || "Unknown Title",
+      type: 'manga',
+      image: mdDetails.image || anilistData?.coverImage?.extraLarge || anilistData?.coverImage?.large || null,
+      backdrop: anilistData?.bannerImage || null,
+      description: mdDetails.description || anilistData?.description || "",
+      releaseDate: mdDetails.releaseDate || (anilistData?.startDate?.year ? `${anilistData.startDate.year}-${String(anilistData.startDate.month || 1).padStart(2, '0')}-${String(anilistData.startDate.day || 1).padStart(2, '0')}` : null),
+      globalScore: anilistData?.averageScore || 0,
+      runtime: anilistData?.duration || null,
+      genres: mdDetails.genres || [],
+      trailerUrl: anilistData?.trailer?.site === "youtube" ? `https://www.youtube.com/embed/${anilistData.trailer.id}` : null,
+      streamingLinks: [],
+      cast: [],
+      seasons: null,
+      credits: mdDetails.staff || [],
+      castData: [],
+      chapters: mdDetails.chapters || anilistData?.chapters || null,
+      volumes: mdDetails.volumes || anilistData?.volumes || null,
+      status: mdDetails.status || anilistData?.status || null,
+      mangadexId: mangadexId,
+    };
+  } else if (provider === 'jikan') {
+    const malId = parseInt(parts[2], 10);
+    const { getMangaDexByMalId } = await import('@/lib/mangadex');
+    const mdDetails = await getMangaDexByMalId(malId);
+    if (mdDetails?.id) {
+      redirect(`/media/mangadex-manga-${mdDetails.id}`);
+    }
+    return notFound();
+  } else if (provider === 'anilist') {
+    const extractedId = parseInt(parts.length > 2 ? parts[2] : parts[1], 10);
     rawData = await getAnilistDetails(extractedId).catch(() => null);
     if (!rawData) {
-      // If AniList is down, try resolving via MAL-Sync / MangaDex
-      const { getMangaDexByAniListId, upsertMangaDexMedia } = await import('@/lib/mangadex');
+      const { getMangaDexByAniListId } = await import('@/lib/mangadex');
       const mdDetails = await getMangaDexByAniListId(extractedId);
-      if (mdDetails) {
-        const dbMedia = await upsertMangaDexMedia(mdDetails);
-        redirect(`/media/${dbMedia.id}`);
+      if (mdDetails?.id) {
+        redirect(`/media/mangadex-manga-${mdDetails.id}`);
       }
       return notFound();
     }
@@ -224,11 +258,34 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
       }
     }
 
-    // Guarantee Master Object exists and enqueue the franchise worker
-    const dbMedia = await upsertBaseMedia(rawData);
-    
-    // Redirect cleanly to the internal CUID!
-    redirect(`/media/${dbMedia.id}`);
+    const { getMangaDexByAniListId } = await import('@/lib/mangadex');
+    const mdDetails = await getMangaDexByAniListId(extractedId);
+    if (mdDetails?.id) {
+      redirect(`/media/mangadex-manga-${mdDetails.id}`);
+    }
+
+    mediaDetails = {
+      id: mediaId,
+      title: rawData?.title?.english || rawData?.title?.romaji || "Unknown Title",
+      type: 'manga',
+      image: rawData?.coverImage?.extraLarge || rawData?.coverImage?.large || null,
+      backdrop: rawData?.bannerImage || null,
+      description: rawData?.description || "",
+      releaseDate: rawData?.startDate?.year ? `${rawData.startDate.year}-${String(rawData.startDate.month || 1).padStart(2, '0')}-${String(rawData.startDate.day || 1).padStart(2, '0')}` : null,
+      globalScore: rawData?.averageScore || 0,
+      runtime: rawData?.duration || null,
+      genres: [],
+      trailerUrl: rawData?.trailer?.site === "youtube" ? `https://www.youtube.com/embed/${rawData.trailer.id}` : null,
+      streamingLinks: [],
+      cast: [],
+      seasons: null,
+      credits: [],
+      castData: [],
+      chapters: rawData?.chapters || null,
+      volumes: rawData?.volumes || null,
+      status: rawData?.status || null,
+      mangadexId: null,
+    };
   } else {
     // Internal Database CUID Resolver
     const localMedia = await prisma.media.findUnique({ 

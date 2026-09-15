@@ -21,14 +21,15 @@ export interface ProfileMediaItem {
 
 export function inferMediaType(mediaId: string): MediaType {
   const parts = mediaId.split("-");
+  // 1. Standard 3-part slugs: [provider]-[type]-[id]
   if (parts[0] === "tmdb" && parts[1] === "movie") return "MOVIE";
   if (parts[0] === "tmdb" && parts[1] === "tv") {
     if (mediaId.includes("-e") || parts.length === 5) return "EPISODE";
     if (mediaId.includes("-s") || parts.length === 4) return "SEASON";
     return "SHOW";
   }
-  if (parts[0] === "rawg" || parts[0] === "igdb") return "GAME";
-  if (parts[0] === "manga") return "MANGA";
+  if (parts[1] === "game" || parts[0] === "rawg" || parts[0] === "igdb") return "GAME";
+  if (parts[1] === "manga" || parts[0] === "manga" || parts[0] === "mangadex" || parts[0] === "jikan" || parts[0] === "anilist") return "MANGA";
   return "OTHER";
 }
 
@@ -72,8 +73,17 @@ export async function refreshMediaStats(mediaId: string, mediaTypeParam: MediaTy
       _count: { score: true },
     });
 
-    const average = aggregate._avg.score == null ? 0 : Math.round(aggregate._avg.score);
     const count = aggregate._count.score;
+
+    // If there are no ratings remaining, delete orphaned stats record
+    if (count === 0) {
+      await prisma.mediaStats.deleteMany({
+        where: { id: mediaId },
+      });
+      return;
+    }
+
+    const average = aggregate._avg.score == null ? 0 : Math.round(aggregate._avg.score);
 
     await prisma.mediaStats.upsert({
       where: { id: mediaId },
@@ -187,7 +197,7 @@ export async function awardBadges(userId: string) {
   ] = await Promise.all([
     prisma.userRating.count({ where: { user_id: userId } }),
     prisma.userRating.count({ where: { user_id: userId, OR: [{ media_id: { startsWith: "rawg-" } }, { media_id: { startsWith: "igdb-" } }] } }),
-    prisma.userRating.count({ where: { user_id: userId, media_id: { startsWith: "manga-" } } }),
+    prisma.userRating.count({ where: { user_id: userId, OR: [{ media_id: { startsWith: "manga-" } }, { media_id: { startsWith: "mangadex-" } }] } }),
     prisma.userRating.findFirst({ where: { user_id: userId, score: { lte: 20 } }, select: { id: true } }),
     prisma.userRating.findFirst({ where: { user_id: userId, score: 100 }, select: { id: true } })
   ]);

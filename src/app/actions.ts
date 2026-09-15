@@ -339,7 +339,7 @@ export async function discoverMedia(
             manga?.title_english ?? manga?.title ?? manga?.title_japanese ?? "Untitled";
 
           return {
-            id: `manga-${manga.mal_id}`,
+            id: `jikan-manga-${manga.mal_id}`,
             title,
             image,
             type: "manga",

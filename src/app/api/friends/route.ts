@@ -114,8 +114,9 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { targetUserId, targetUsername } = body;
 
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     let targetUser = null;
-    if (targetUserId) {
+    if (targetUserId && UUID_REGEX.test(targetUserId)) {
       targetUser = await prisma.user.findUnique({
         where: { id: targetUserId },
         select: { id: true, name: true, username: true },

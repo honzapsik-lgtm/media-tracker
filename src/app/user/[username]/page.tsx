@@ -18,13 +18,19 @@ export default async function UserProfilePage({
   const resolvedParams = await params;
   const rawHandle = decodeURIComponent(resolvedParams.username).trim().replace(/^@/, "");
 
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawHandle);
+
   const targetUser = await prisma.user.findFirst({
-    where: {
-      OR: [
-        { username: { equals: rawHandle, mode: "insensitive" } },
-        { id: rawHandle },
-      ],
-    },
+    where: isUuid
+      ? {
+          OR: [
+            { username: { equals: rawHandle, mode: "insensitive" } },
+            { id: rawHandle },
+          ],
+        }
+      : {
+          username: { equals: rawHandle, mode: "insensitive" },
+        },
     include: {
       privacySettings: true,
       badges: { select: { badge_id: true, unlocked_at: true } },
