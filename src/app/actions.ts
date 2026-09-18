@@ -3,6 +3,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { readApiCache, timeProviderFetch, writeApiCache } from "@/lib/api-cache";
+import { getIGDBToken } from "@/lib/games";
 
 export interface DiscoverMediaItem {
   id: string;
@@ -62,65 +63,83 @@ const tmdbShowGenreIdByKey: Record<string, number> = {
   scifi: 10765,
   fantasy: 10765,
   scififantasy: 10765,
+  sciencefiction: 10765,
   soap: 10766,
   talk: 10767,
   war: 10768,
+  politics: 10768,
   warpolitics: 10768,
   western: 37,
 };
 
-const rawgGenreSlugByKey: Record<string, string> = {
-  action: "action",
-  adventure: "adventure",
-  rpg: "role-playing-games-rpg",
-  roleplaying: "role-playing-games-rpg",
-  roleplayingrpg: "role-playing-games-rpg",
-  shooter: "shooter",
-  strategy: "strategy",
-  simulation: "simulation",
-  puzzle: "puzzle",
-  racing: "racing",
-  sports: "sports",
-  fighting: "fighting",
-  family: "family",
-  boardgames: "board-games",
-  educational: "educational",
-  card: "card",
-  indie: "indie",
-  massmultiplayer: "massively-multiplayer",
-  massivelymultiplayer: "massively-multiplayer",
-};
+interface IgdbFilter {
+  genreId?: number;
+  themeId?: number;
+}
 
-// MAL genre IDs for manga (Jikan v4)
-const jikanMangaGenreIdByKey: Record<string, number> = {
-  action: 1,
-  adventure: 2,
-  comedy: 4,
-  drama: 8,
-  fantasy: 10,
-  horror: 14,
-  mystery: 7,
-  romance: 22,
-  scifi: 24,
-  sciencefiction: 24,
-  slice: 36,
-  sliceoflife: 36,
-  sports: 30,
-  supernatural: 37,
-  suspense: 41,
-  thriller: 41,
-  ecchi: 9,
-  erotica: 49,
-  historical: 13,
-  martialarts: 17,
-  mecha: 18,
-  music: 19,
-  parody: 20,
-  psychological: 40,
-  seinen: 42,
-  shoujo: 43,
-  shounen: 44,
-  josei: 45,
+const igdbFilterByKey: Record<string, IgdbFilter> = {
+  // Genres
+  pointandclick: { genreId: 2 },
+  fighting: { genreId: 4 },
+  shooter: { genreId: 5 },
+  music: { genreId: 7 },
+  platform: { genreId: 8 },
+  platformer: { genreId: 8 },
+  puzzle: { genreId: 9 },
+  racing: { genreId: 10 },
+  realtimestrategyrts: { genreId: 11 },
+  rts: { genreId: 11 },
+  roleplaying: { genreId: 12 },
+  roleplayingrpg: { genreId: 12 },
+  rpg: { genreId: 12 },
+  simulator: { genreId: 13 },
+  simulation: { genreId: 13 },
+  sport: { genreId: 14 },
+  sports: { genreId: 14 },
+  strategy: { genreId: 15 },
+  turnbasedstrategytbs: { genreId: 16 },
+  tbs: { genreId: 16 },
+  tactical: { genreId: 24 },
+  hackandslashbeatemup: { genreId: 25 },
+  quiztrivia: { genreId: 26 },
+  trivia: { genreId: 26 },
+  pinball: { genreId: 30 },
+  adventure: { genreId: 31 },
+  indie: { genreId: 32 },
+  arcade: { genreId: 33 },
+  visualnovel: { genreId: 34 },
+  cardboardgame: { genreId: 35 },
+  cardandboardgame: { genreId: 35 },
+  boardgames: { genreId: 35 },
+  card: { genreId: 35 },
+  moba: { genreId: 36 },
+  massmultiplayer: { genreId: 36 },
+  massivelymultiplayer: { genreId: 36 },
+  mmo: { genreId: 36 },
+  casual: { genreId: 33 },
+  // Themes
+  action: { themeId: 1 },
+  actionadventure: { themeId: 1, genreId: 31 },
+  fantasy: { themeId: 17 },
+  scifi: { themeId: 18 },
+  sciencefiction: { themeId: 18 },
+  horror: { themeId: 19 },
+  thriller: { themeId: 20 },
+  suspense: { themeId: 20 },
+  survival: { themeId: 21 },
+  historical: { themeId: 22 },
+  stealth: { themeId: 23 },
+  comedy: { themeId: 27 },
+  drama: { themeId: 31 },
+  openworld: { themeId: 38 },
+  warfare: { themeId: 39 },
+  war: { themeId: 39 },
+  mystery: { themeId: 43 },
+  romance: { themeId: 44 },
+  sandbox: { themeId: 33 },
+  educational: { themeId: 34 },
+  kids: { themeId: 35 },
+  family: { themeId: 35 },
 };
 
 export async function getSeasonEpisodes(tvId: string, seasonNumber: number) {
@@ -338,149 +357,108 @@ export async function discoverMedia(
     }
 
     if (type === "game") {
-      const RAWG_API_KEY = process.env.RAWG_API_KEY;
-      if (!RAWG_API_KEY) return [];
+      const token = await getIGDBToken();
+      const clientId = process.env.TWITCH_CLIENT_ID;
+      if (!token || !clientId) return [];
 
-      const rawgGenreSlug = rawgGenreSlugByKey[normalizedGenre] ?? normalizedGenre;
+      const filter = igdbFilterByKey[normalizedGenre];
+      const whereConditions: string[] = ["cover != null"];
 
-      const url = new URL("https://api.rawg.io/api/games");
-      url.searchParams.set("key", RAWG_API_KEY);
-      url.searchParams.set("page_size", "12");
-
-      if (rawgGenreSlug) url.searchParams.set("genres", rawgGenreSlug);
-      if (yearOk) {
-        // RAWG expects: YYYY-01-01,YYYY-12-31
-        url.searchParams.set("dates", `${yearOk}-01-01,${yearOk}-12-31`);
+      if (filter) {
+        if (filter.genreId && filter.themeId) {
+          whereConditions.push(`(genres = (${filter.genreId}) | themes = (${filter.themeId}))`);
+        } else if (filter.genreId) {
+          whereConditions.push(`genres = (${filter.genreId})`);
+        } else if (filter.themeId) {
+          whereConditions.push(`themes = (${filter.themeId})`);
+        }
       }
-      // RAWG expects ordering such as "-rating" or "released".
-      if (sort) url.searchParams.set("ordering", sort);
+
+      if (yearOk) {
+        const startTs = Math.floor(new Date(`${yearOk}-01-01T00:00:00Z`).getTime() / 1000);
+        const endTs = Math.floor(new Date(`${yearOk}-12-31T23:59:59Z`).getTime() / 1000);
+        whereConditions.push(`first_release_date >= ${startTs} & first_release_date <= ${endTs}`);
+      }
+
+      let sortClause = "sort total_rating_count desc;";
+      if (sort === "top_rated") {
+        whereConditions.push("total_rating != null & total_rating_count >= 5");
+        sortClause = "sort total_rating desc;";
+      } else if (sort === "lowest") {
+        whereConditions.push("total_rating != null & total_rating_count >= 5");
+        sortClause = "sort total_rating asc;";
+      } else if (sort === "newest") {
+        const nowTs = Math.floor(Date.now() / 1000);
+        whereConditions.push(`first_release_date != null & first_release_date <= ${nowTs}`);
+        sortClause = "sort first_release_date desc;";
+      } else if (sort === "oldest") {
+        whereConditions.push("first_release_date != null");
+        sortClause = "sort first_release_date asc;";
+      } else {
+        whereConditions.push("total_rating_count != null");
+        sortClause = "sort total_rating_count desc;";
+      }
+
+      const bodyQuery = `fields id, name, cover.image_id, first_release_date, total_rating; where ${whereConditions.join(" & ")}; ${sortClause} limit 12;`;
 
       let res: Response | null = null;
       try {
         res = await timeProviderFetch({
-          provider: "rawg",
+          provider: "igdb",
           cacheId,
-          operation: "rawg.discover",
+          operation: "igdb.discover",
           fetcher: async () => {
-            try {
-              return await fetch(url.toString(), { cache: "no-store" });
-            } catch {
-              await new Promise((r) => setTimeout(r, 300));
-              return await fetch(url.toString(), { cache: "no-store" });
-            }
-          },
+            return await fetch("https://api.igdb.com/v4/games", {
+              method: "POST",
+              headers: {
+                "Client-ID": clientId,
+                "Authorization": `Bearer ${token}`
+              },
+              body: bodyQuery,
+              next: { revalidate: 3600 }
+            });
+          }
         });
       } catch (err) {
-        console.warn("[discoverMedia] RAWG discover request failed:", err);
+        console.warn("[discoverMedia] IGDB discover request failed:", err);
         return [];
       }
+
       if (!res || !res.ok) return [];
-      const data: any = await res.json();
-      const results: any[] = Array.isArray(data?.results) ? data.results : [];
+      const results: any[] = await res.json().catch(() => []);
 
       const discoverItems = resultsToDiscoverItems(
         results
           .map((game: any) => {
             if (typeof game?.id !== "number") return null;
 
-          const metacritic = typeof game?.metacritic === "number" ? game.metacritic : null;
-          const rating = typeof game?.rating === "number" ? game.rating : null;
+            const score = typeof game?.total_rating === "number" ? Math.round(game.total_rating) : 0;
+            const image = game.cover?.image_id
+              ? `https://images.igdb.com/igdb/image/upload/t_1080p/${game.cover.image_id}.jpg`
+              : "";
+            const releaseDate = game.first_release_date
+              ? new Date(game.first_release_date * 1000).toISOString().split("T")[0]
+              : null;
 
-          // RAWG metacritic is already 0..100-like; RAWG rating is 0..5.
-          const globalScore =
-            metacritic != null ? Math.round(metacritic) : rating != null ? Math.round(rating * 20) : 0;
-
-          return {
-            id: `rawg-game-${game.id}`,
-            title: game?.name ?? "Untitled",
-            image: game?.background_image ?? "",
-            type: "game",
-            globalScore: safeGlobalScore(globalScore),
-            releaseDate: game?.released || null,
-          };
+            return {
+              id: `igdb-game-${game.id}`,
+              title: game?.name ?? "Untitled",
+              image,
+              type: "game",
+              globalScore: safeGlobalScore(score),
+              releaseDate,
+            };
           })
           .filter(Boolean) as DiscoverMediaItem[]
       );
 
-      await writeApiCache(cacheId, "rawg", discoverItems, DISCOVER_CACHE_TTL_SECONDS);
+      await writeApiCache(cacheId, "igdb", discoverItems, DISCOVER_CACHE_TTL_SECONDS);
 
       return discoverItems;
     }
 
     if (type === "manga") {
-      const malGenreId = jikanMangaGenreIdByKey[normalizedGenre];
-
-      const url = new URL("https://api.jikan.moe/v4/manga");
-      url.searchParams.set("limit", "12");
-      url.searchParams.set("order_by", "score");
-      url.searchParams.set("sort", sort === "lowest" ? "asc" : "desc");
-      if (malGenreId) {
-        url.searchParams.set("genres", String(malGenreId));
-      } else if (genre?.trim()) {
-        url.searchParams.set("q", genre.trim());
-      }
-      if (yearOk) {
-        url.searchParams.set("start_date", `${yearOk}-01-01`);
-        url.searchParams.set("end_date", `${yearOk}-12-31`);
-      }
-
-      let res: Response | null = null;
-      try {
-        res = await timeProviderFetch({
-          provider: "jikan",
-          cacheId,
-          operation: "jikan.discover",
-          fetcher: async () => {
-            try {
-              return await fetch(url.toString(), { next: { revalidate: 3600 } });
-            } catch {
-              await new Promise((r) => setTimeout(r, 300));
-              return await fetch(url.toString(), { next: { revalidate: 3600 } });
-            }
-          },
-        });
-      } catch (err) {
-        console.warn("[discoverMedia] Jikan discover request failed:", err);
-        return [];
-      }
-      if (!res || !res.ok) return [];
-
-      const data: any = await res.json();
-      const results: any[] = Array.isArray(data?.data) ? data.data : [];
-
-      const discoverItems = resultsToDiscoverItems(
-        results
-          .map((manga: any) => {
-            if (typeof manga?.mal_id !== "number") return null;
-
-          const score = typeof manga?.score === "number" ? manga.score : null;
-          const globalScore = score != null ? Math.round(score * 10) : 0;
-
-          const image =
-            manga?.images?.webp?.image_url ??
-            manga?.images?.jpg?.image_url ??
-            manga?.images?.webp?.large_image_url ??
-            manga?.images?.jpg?.large_image_url ??
-            "";
-
-          const title =
-            manga?.title_english ?? manga?.title ?? manga?.title_japanese ?? "Untitled";
-
-          return {
-            id: `jikan-manga-${manga.mal_id}`,
-            title,
-            image,
-            type: "manga",
-            globalScore,
-            releaseDate: manga?.published?.from ? manga.published.from.split("T")[0] : null,
-          };
-          })
-          .filter(Boolean) as DiscoverMediaItem[]
-      );
-
-      await writeApiCache(cacheId, "jikan", discoverItems, DISCOVER_CACHE_TTL_SECONDS);
-
-      return discoverItems;
+      return await fetchAniListMangaDiscover(normalizedGenre, yearOk, sort, cacheId, resultsToDiscoverItems);
     }
 
     return [];
@@ -488,4 +466,106 @@ export async function discoverMedia(
     console.error("discoverMedia failed:", error);
     return [];
   }
+}
+
+async function fetchAniListMangaDiscover(
+  normalizedGenre: string,
+  yearOk: string | null,
+  sort: string,
+  cacheId: string,
+  resultsToDiscoverItems: (items: DiscoverMediaItem[]) => DiscoverMediaItem[]
+): Promise<DiscoverMediaItem[]> {
+  try {
+    const anilistGenreMap: Record<string, { genre?: string; tag?: string }> = {
+      action: { genre: "Action" },
+      adventure: { genre: "Adventure" },
+      comedy: { genre: "Comedy" },
+      drama: { genre: "Drama" },
+      fantasy: { genre: "Fantasy" },
+      horror: { genre: "Horror" },
+      mystery: { genre: "Mystery" },
+      psychological: { genre: "Psychological" },
+      romance: { genre: "Romance" },
+      scifi: { genre: "Sci-Fi" },
+      sciencefiction: { genre: "Sci-Fi" },
+      slice: { genre: "Slice of Life" },
+      sliceoflife: { genre: "Slice of Life" },
+      sports: { genre: "Sports" },
+      supernatural: { genre: "Supernatural" },
+      suspense: { genre: "Thriller" },
+      thriller: { genre: "Thriller" },
+      historical: { tag: "Historical" },
+      martialarts: { tag: "Martial Arts" },
+      mecha: { genre: "Mecha" },
+      seinen: { tag: "Seinen" },
+      shounen: { tag: "Shounen" },
+      shoujo: { tag: "Shoujo" },
+      josei: { tag: "Josei" },
+      isekai: { tag: "Isekai" },
+      ecchi: { genre: "Ecchi" },
+      music: { genre: "Music" },
+    };
+
+    const mapped = anilistGenreMap[normalizedGenre];
+    const anilistQuery = `
+      query ($genre: String, $tag: String, $sort: [MediaSort], $year: String) {
+        Page(page: 1, perPage: 12) {
+          media(type: MANGA, genre: $genre, tag: $tag, sort: $sort, startDate_like: $year) {
+            id
+            title { english romaji }
+            coverImage { large extraLarge }
+            averageScore
+            startDate { year month day }
+          }
+        }
+      }
+    `;
+    let anilistSort: string[];
+    if (sort === "top_rated") anilistSort = ["SCORE_DESC"];
+    else if (sort === "lowest") anilistSort = ["SCORE_ASC"];
+    else if (sort === "newest") anilistSort = ["START_DATE_DESC"];
+    else if (sort === "oldest") anilistSort = ["START_DATE_ASC"];
+    else anilistSort = ["POPULARITY_DESC"];
+
+    const aniRes = await timeProviderFetch({
+      provider: "anilist",
+      cacheId,
+      operation: "anilist.discover",
+      fetcher: () => fetch("https://graphql.anilist.co", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: anilistQuery,
+          variables: {
+            genre: mapped?.genre,
+            tag: mapped?.tag,
+            sort: anilistSort,
+            year: yearOk ? `${yearOk}%` : undefined
+          }
+        }),
+        next: { revalidate: 3600 }
+      })
+    });
+
+    if (!aniRes.ok) return [];
+    const aniJson = await aniRes.json();
+    const aniMedia = aniJson.data?.Page?.media || [];
+    const aniItems = resultsToDiscoverItems(
+      aniMedia.map((m: any) => ({
+        id: `anilist-manga-${m.id}`,
+        title: m.title?.english || m.title?.romaji || "Untitled",
+        image: m.coverImage?.extraLarge || m.coverImage?.large || "",
+        type: "manga",
+        globalScore: typeof m.averageScore === "number" ? m.averageScore : 0,
+        releaseDate: m.startDate?.year ? `${m.startDate.year}-${String(m.startDate.month || 1).padStart(2, "0")}-${String(m.startDate.day || 1).padStart(2, "0")}` : null,
+      }))
+    );
+    if (aniItems.length > 0) {
+      await writeApiCache(cacheId, "anilist", aniItems, DISCOVER_CACHE_TTL_SECONDS);
+      return aniItems;
+    }
+  } catch (aniErr) {
+    console.warn("[discoverMedia] AniList manga discover failed:", aniErr);
+  }
+  return [];
 }

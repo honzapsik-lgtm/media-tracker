@@ -10,6 +10,7 @@ export interface MediaItem {
   originalLanguage?: string;
   genreIds?: number[];
   genres?: string[];
+  keywords?: string[];
   origin?: string;
 }
 

@@ -179,7 +179,10 @@ export async function getMangaDexDetails(mangadexId: string) {
   try {
     const cached = await prisma.apiCache.findUnique({ where: { id: cacheKey } });
     if (cached && cached.data && cached.expires_at > new Date()) {
-      return cached.data as any;
+      const cachedData = cached.data as any;
+      if (Array.isArray(cachedData.keywords) && Array.isArray(cachedData.genres) && cachedData.genres.length <= 3) {
+        return cachedData;
+      }
     }
   } catch (e) {
     // Ignore cache read errors
@@ -220,9 +223,28 @@ export async function getMangaDexDetails(mangadexId: string) {
     const alId = manga.attributes?.links?.al ? parseInt(manga.attributes.links.al, 10) : null;
     const malId = manga.attributes?.links?.mal ? parseInt(manga.attributes.links.mal, 10) : null;
 
-    const tags = (manga.attributes?.tags || [])
+    const rawTags = manga.attributes?.tags || [];
+    const macroGenres = rawTags
+      .filter((t: any) => t.attributes?.group === 'genre')
       .map((t: any) => t.attributes?.name?.en)
       .filter(Boolean);
+
+    // Fallback to top tags if no tags are explicitly grouped as genre
+    const baseGenres = macroGenres.length > 0 ? macroGenres : rawTags
+      .filter((t: any) => t.attributes?.group !== 'format' && t.attributes?.group !== 'content')
+      .map((t: any) => t.attributes?.name?.en)
+      .filter(Boolean);
+
+    // Keep top 3 genres for header row, preserve the rest in keywords
+    const genres = baseGenres.slice(0, 3);
+    const overflowGenres = baseGenres.slice(3);
+
+    const themes = rawTags
+      .filter((t: any) => t.attributes?.group === 'theme')
+      .map((t: any) => t.attributes?.name?.en)
+      .filter(Boolean);
+
+    const keywords = Array.from(new Set([...overflowGenres, ...themes]));
 
     const result = {
       id: manga.id,
@@ -236,7 +258,8 @@ export async function getMangaDexDetails(mangadexId: string) {
       status,
       chapters,
       volumes,
-      genres: tags,
+      genres,
+      keywords,
       staff
     };
 

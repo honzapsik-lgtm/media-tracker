@@ -216,6 +216,7 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
       globalScore: anilistData?.averageScore || 0,
       runtime: anilistData?.duration || null,
       genres: mdDetails.genres || [],
+      keywords: mdDetails.keywords || [],
       trailerUrl: anilistData?.trailer?.site === "youtube" ? `https://www.youtube.com/embed/${anilistData.trailer.id}` : null,
       streamingLinks: [],
       cast: [],
@@ -275,6 +276,7 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
       globalScore: rawData?.averageScore || 0,
       runtime: rawData?.duration || null,
       genres: rawData?.genres || [],
+      keywords: (rawData?.tags || []).filter((t: any) => !t.isMediaSpoiler).map((t: any) => t.name) || [],
       trailerUrl: rawData?.trailer?.site === "youtube" ? `https://www.youtube.com/embed/${rawData.trailer.id}` : null,
       streamingLinks: [],
       cast: [],
@@ -332,6 +334,7 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
         globalScore: rawData?.averageScore || 0,
         runtime: rawData?.duration || null,
         genres: mdDetails?.genres || rawData?.genres || [],
+        keywords: mdDetails?.keywords || (rawData?.tags ? rawData.tags.filter((t: any) => !t.isMediaSpoiler).map((t: any) => t.name) : []) || [],
         trailerUrl: rawData?.trailer?.site === "youtube" ? `https://www.youtube.com/embed/${rawData.trailer.id}` : null,
         streamingLinks: (() => {
           const seen = new Set();
@@ -394,6 +397,7 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
         globalScore: rawData.averageScore ? rawData.averageScore : 0,
         runtime: rawData.duration,
         genres: rawData.genres || [],
+        keywords: (rawData.tags ? rawData.tags.filter((t: any) => !t.isMediaSpoiler).map((t: any) => t.name) : (rawData.keywords || [])) || [],
         trailerUrl: rawData.trailer?.site === "youtube" ? `https://www.youtube.com/embed/${rawData.trailer.id}` : null,
         streamingLinks: (() => {
           const seen = new Set();
@@ -715,6 +719,24 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
               <AnimeThemes themeData={animeThemes || localDbMedia?.themeData} />
             )}
 
+            {/* KEYWORDS */}
+            {Array.isArray(mediaDetails.keywords) && mediaDetails.keywords.length > 0 && (
+              <div className="mt-4 bg-gray-950/50 p-5 rounded-2xl border border-gray-800 shadow-xl">
+                <h3 className="text-sm font-black text-gray-500 uppercase tracking-widest mb-3">Keywords</h3>
+                <div className="flex flex-wrap gap-1.5">
+                  {mediaDetails.keywords.slice(0, 30).map((kw: string) => (
+                    <Link
+                      key={kw}
+                      href={`/search?q=${encodeURIComponent(kw)}`}
+                      className="bg-gray-900/80 hover:bg-gray-800 border border-gray-800 hover:border-gray-700 text-gray-400 hover:text-white px-2.5 py-1 rounded-md text-xs font-medium transition-colors"
+                    >
+                      {kw}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
+
           </div>
 
           <div className="flex-1">
@@ -802,25 +824,28 @@ export default async function MediaDetailsPage({ params }: { params: Promise<{ i
                   </span>
                 </>
               )}
-            </div>
 
-            {/* GENRES */}
-            {Array.isArray(mediaDetails.genres) && mediaDetails.genres.length > 0 && (
-              <div className="flex flex-wrap items-center gap-2 mb-5">
-                {mediaDetails.genres.map((genre: string) => {
-                  const discoverType = mediaTypeKey === "show" ? "show" : mediaTypeKey;
-                  return (
-                    <Link
-                      key={genre}
-                      href={`/discover?type=${discoverType}&genre=${encodeURIComponent(genre.toLowerCase())}`}
-                      className="bg-gray-900/90 hover:bg-gray-800 border border-gray-800 hover:border-gray-700 text-gray-300 hover:text-white px-3 py-1 rounded-full text-xs font-semibold tracking-wide transition-all shadow-sm"
-                    >
-                      {genre}
-                    </Link>
-                  );
-                })}
-              </div>
-            )}
+              {/* GENRES */}
+              {Array.isArray(mediaDetails.genres) && mediaDetails.genres.length > 0 && (
+                <>
+                  <span className="text-gray-600 hidden sm:inline">•</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {mediaDetails.genres.slice(0, 3).map((genre: string) => {
+                      const discoverType = mediaTypeKey === "show" ? "show" : mediaTypeKey;
+                      return (
+                        <Link
+                          key={genre}
+                          href={`/discover?type=${discoverType}&genre=${encodeURIComponent(genre.toLowerCase())}`}
+                          className="bg-gray-900/90 hover:bg-gray-800 border border-gray-800 hover:border-gray-700 text-gray-300 hover:text-white px-3 py-1 rounded-full text-xs font-semibold tracking-wide transition-all shadow-sm"
+                        >
+                          {genre}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
 
             {/* DEVELOPERS & PUBLISHERS FOR GAMES */}
             {mediaTypeKey === 'game' && mediaDetails.companies && (

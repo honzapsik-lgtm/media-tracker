@@ -4,36 +4,85 @@ import { useRouter, useSearchParams, usePathname } from "next/navigation";
 
 const GENRE_MAP: Record<string, { value: string; label: string }[]> = {
   movie: [
-    { value: "action", label: "Action" }, { value: "adventure", label: "Adventure" },
-    { value: "animation", label: "Animation" }, { value: "comedy", label: "Comedy" },
-    { value: "crime", label: "Crime" }, { value: "documentary", label: "Documentary" },
-    { value: "drama", label: "Drama" }, { value: "family", label: "Family" },
-    { value: "fantasy", label: "Fantasy" }, { value: "horror", label: "Horror" },
-    { value: "mystery", label: "Mystery" }, { value: "romance", label: "Romance" },
-    { value: "scifi", label: "Sci-Fi" }, { value: "thriller", label: "Thriller" }
+    { value: "action", label: "Action" },
+    { value: "adventure", label: "Adventure" },
+    { value: "animation", label: "Animation" },
+    { value: "comedy", label: "Comedy" },
+    { value: "crime", label: "Crime" },
+    { value: "documentary", label: "Documentary" },
+    { value: "drama", label: "Drama" },
+    { value: "family", label: "Family" },
+    { value: "fantasy", label: "Fantasy" },
+    { value: "history", label: "History" },
+    { value: "horror", label: "Horror" },
+    { value: "music", label: "Music" },
+    { value: "mystery", label: "Mystery" },
+    { value: "romance", label: "Romance" },
+    { value: "scifi", label: "Sci-Fi" },
+    { value: "tvmovie", label: "TV Movie" },
+    { value: "thriller", label: "Thriller" },
+    { value: "war", label: "War" },
+    { value: "western", label: "Western" },
   ],
   show: [
-    { value: "action", label: "Action & Adventure" }, { value: "animation", label: "Animation" },
-    { value: "comedy", label: "Comedy" }, { value: "crime", label: "Crime" },
-    { value: "documentary", label: "Documentary" }, { value: "drama", label: "Drama" },
-    { value: "family", label: "Family" }, { value: "mystery", label: "Mystery" },
-    { value: "scifi", label: "Sci-Fi & Fantasy" }
+    { value: "actionadventure", label: "Action & Adventure" },
+    { value: "animation", label: "Animation" },
+    { value: "comedy", label: "Comedy" },
+    { value: "crime", label: "Crime" },
+    { value: "documentary", label: "Documentary" },
+    { value: "drama", label: "Drama" },
+    { value: "family", label: "Family" },
+    { value: "kids", label: "Kids" },
+    { value: "mystery", label: "Mystery" },
+    { value: "news", label: "News" },
+    { value: "reality", label: "Reality" },
+    { value: "scififantasy", label: "Sci-Fi & Fantasy" },
+    { value: "soap", label: "Soap" },
+    { value: "talk", label: "Talk" },
+    { value: "warpolitics", label: "War & Politics" },
+    { value: "western", label: "Western" },
   ],
   game: [
-    { value: "action", label: "Action" }, { value: "adventure", label: "Adventure" },
-    { value: "rpg", label: "RPG" }, { value: "shooter", label: "Shooter" },
-    { value: "strategy", label: "Strategy" }, { value: "simulation", label: "Simulation" },
-    { value: "puzzle", label: "Puzzle" }, { value: "racing", label: "Racing" },
-    { value: "sports", label: "Sports" }, { value: "fighting", label: "Fighting" }
+    { value: "action", label: "Action" },
+    { value: "adventure", label: "Adventure" },
+    { value: "rpg", label: "RPG" },
+    { value: "shooter", label: "Shooter" },
+    { value: "strategy", label: "Strategy" },
+    { value: "simulation", label: "Simulation" },
+    { value: "puzzle", label: "Puzzle" },
+    { value: "racing", label: "Racing" },
+    { value: "sports", label: "Sports" },
+    { value: "fighting", label: "Fighting" },
+    { value: "platformer", label: "Platformer" },
+    { value: "indie", label: "Indie" },
+    { value: "arcade", label: "Arcade" },
+    { value: "casual", label: "Casual" },
+    { value: "boardgames", label: "Board / Card" },
+    { value: "massmultiplayer", label: "MMO" },
   ],
   manga: [
-    { value: "action", label: "Action" }, { value: "adventure", label: "Adventure" },
-    { value: "comedy", label: "Comedy" }, { value: "drama", label: "Drama" },
-    { value: "fantasy", label: "Fantasy" }, { value: "horror", label: "Horror" },
-    { value: "mystery", label: "Mystery" }, { value: "romance", label: "Romance" },
-    { value: "scifi", label: "Sci-Fi" }, { value: "slice", label: "Slice of Life" },
-    { value: "sports", label: "Sports" }, { value: "supernatural", label: "Supernatural" }
-  ]
+    { value: "action", label: "Action" },
+    { value: "adventure", label: "Adventure" },
+    { value: "comedy", label: "Comedy" },
+    { value: "drama", label: "Drama" },
+    { value: "fantasy", label: "Fantasy" },
+    { value: "horror", label: "Horror" },
+    { value: "mystery", label: "Mystery" },
+    { value: "psychological", label: "Psychological" },
+    { value: "romance", label: "Romance" },
+    { value: "scifi", label: "Sci-Fi" },
+    { value: "slice", label: "Slice of Life" },
+    { value: "sports", label: "Sports" },
+    { value: "supernatural", label: "Supernatural" },
+    { value: "suspense", label: "Suspense / Thriller" },
+    { value: "historical", label: "Historical" },
+    { value: "martialarts", label: "Martial Arts" },
+    { value: "mecha", label: "Mecha" },
+    { value: "seinen", label: "Seinen" },
+    { value: "shounen", label: "Shounen" },
+    { value: "shoujo", label: "Shoujo" },
+    { value: "josei", label: "Josei" },
+  ],
 };
 
 export default function DiscoverFilters() {
@@ -75,6 +124,15 @@ export default function DiscoverFilters() {
   const years = Array.from({ length: currentYear - 1890 + 1 }, (_, i) => currentYear - i);
 
   const availableGenres = GENRE_MAP[type] || GENRE_MAP.movie;
+  const normalizedGenre = genre.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  const selectedGenre = availableGenres.find(
+    (g) =>
+      g.value.toLowerCase() === genre.toLowerCase() ||
+      g.label.toLowerCase() === genre.toLowerCase() ||
+      g.value.replace(/[^a-z0-9]/g, "") === normalizedGenre ||
+      g.label.replace(/[^a-z0-9]/g, "") === normalizedGenre
+  )?.value || (genre ? normalizedGenre : "");
+
   const activeFilterCount = (genre ? 1 : 0) + (year ? 1 : 0) + (sort !== "popular" ? 1 : 0);
 
   return (
@@ -94,7 +152,7 @@ export default function DiscoverFilters() {
       <div className="w-px h-8 bg-gray-800 hidden md:block"></div>
 
       <select 
-        value={genre} 
+        value={selectedGenre} 
         onChange={(e) => handleFilterChange("genre", e.target.value)}
         className="bg-gray-950 border border-gray-700 text-white text-sm font-semibold rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-3 outline-none cursor-pointer hover:border-gray-500 transition-colors"
       >

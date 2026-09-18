@@ -146,7 +146,7 @@ export async function getGameDetails(id: string) {
   const cached = await prisma.apiCache.findUnique({ where: { id: cacheId } });
   if (cached && cached.data && JSON.stringify(cached.data) !== 'null' && cached.expires_at > new Date()) {
     const cachedData = cached.data as any;
-    if (Array.isArray(cachedData.genres)) {
+    if (Array.isArray(cachedData.genres) && Array.isArray(cachedData.keywords)) {
       return cachedData;
     }
   }
@@ -155,7 +155,7 @@ export async function getGameDetails(id: string) {
   const clientId = process.env.TWITCH_CLIENT_ID;
   if (!token || !clientId) throw new Error("Missing IGDB credentials");
 
-  const bodyQuery = `fields name, cover.image_id, summary, first_release_date, genres.name, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, game_engines.name, platforms.name, websites.url, videos.video_id; where id = ${numericId};`;
+  const bodyQuery = `fields name, cover.image_id, summary, first_release_date, genres.name, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, game_engines.name, platforms.name, websites.url, videos.video_id, themes.name, keywords.name; where id = ${numericId};`;
 
   const res = await timeProviderFetch({
     provider: "igdb",
@@ -274,6 +274,18 @@ export async function getGameDetails(id: string) {
     });
   }
 
+  const keywords: string[] = [];
+  if (Array.isArray(game.themes)) {
+    game.themes.forEach((t: any) => {
+      if (t.name && !keywords.includes(t.name)) keywords.push(t.name);
+    });
+  }
+  if (Array.isArray(game.keywords)) {
+    game.keywords.forEach((k: any) => {
+      if (k.name && !keywords.includes(k.name)) keywords.push(k.name);
+    });
+  }
+
   const result = {
     id: cacheId,
     title: game.name,
@@ -285,6 +297,7 @@ export async function getGameDetails(id: string) {
     globalScore: 0,
     runtime: null,
     genres: game.genres ? game.genres.map((g: any) => g.name).filter(Boolean) : [],
+    keywords,
     trailerUrl,
     cast: [],
     seasons: null,
@@ -446,6 +459,7 @@ export async function getRAWGGameDetails(id: number) {
   }
 
   const genres = game.genres ? game.genres.map((g: any) => g.name) : [];
+  const keywords = Array.isArray(game.tags) ? game.tags.map((t: any) => t.name).filter(Boolean) : [];
 
   const result = {
     id: cacheId,
@@ -458,6 +472,7 @@ export async function getRAWGGameDetails(id: number) {
     globalScore: game.metacritic || 0,
     runtime: game.playtime || null,
     genres,
+    keywords,
     trailerUrl: game.clip?.clip || null,
     cast: [],
     seasons: null,

@@ -176,10 +176,15 @@ export default function MangaChapters({
 
         // Map existing real chapters by numeric index
         const finalChapterMap = new Map<string, Chapter>();
+        const coveredIntegers = new Set<number>();
+
         dedupedChapters.forEach((c) => {
           const num = parseFloat(c.chapter || "");
           const key = !isNaN(num) ? String(num) : (c.chapter || c.id);
           finalChapterMap.set(key, c);
+          if (!isNaN(num) && num > 0) {
+            coveredIntegers.add(Math.floor(num));
+          }
         });
 
         let syntheticFound = false;
@@ -193,7 +198,8 @@ export default function MangaChapters({
 
           for (let i = 1; i <= Math.floor(finalMaxChapter); i++) {
             const key = String(i);
-            if (!finalChapterMap.has(key)) {
+            // Do not synthesize an empty chapter if chapter i or its sub-parts (e.g. i.1, i.2) already exist
+            if (!finalChapterMap.has(key) && !coveredIntegers.has(i)) {
               syntheticFound = true;
               let estVolume = "none";
               if (chaptersPerVolume && resolvedTotalVolumes) {
